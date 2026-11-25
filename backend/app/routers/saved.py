@@ -60,7 +60,7 @@ def api_save_opportunity(
         )
     ).scalar_one_or_none()
     if existing:
-        return {"saved_id": existing.saved_id, "already_saved": True}
+        return {"saved_id": existing.saved_id, "saved": True, "already_saved": True}
 
     rec = SavedOpportunityRecord(
         saved_id=gen_id("sav"),
@@ -70,7 +70,33 @@ def api_save_opportunity(
     )
     db.add(rec)
     db.commit()
-    return {"saved_id": rec.saved_id, "opportunity_id": rec.opportunity_id}
+    return {"saved_id": rec.saved_id, "opportunity_id": rec.opportunity_id, "saved": True}
+
+
+@router.post("/{opportunity_id}", status_code=status.HTTP_200_OK)
+def api_save_opportunity_path(
+    opportunity_id: str,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    existing = db.execute(
+        select(SavedOpportunityRecord).where(
+            SavedOpportunityRecord.organization_id == principal.organization_id,
+            SavedOpportunityRecord.opportunity_id == opportunity_id,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return {"saved_id": existing.saved_id, "saved": True, "already_saved": True}
+
+    rec = SavedOpportunityRecord(
+        saved_id=gen_id("sav"),
+        organization_id=principal.organization_id,
+        opportunity_id=opportunity_id,
+        notes="",
+    )
+    db.add(rec)
+    db.commit()
+    return {"saved_id": rec.saved_id, "opportunity_id": rec.opportunity_id, "saved": True}
 
 
 @router.delete("/{saved_id}")

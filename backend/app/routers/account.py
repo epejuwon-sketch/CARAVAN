@@ -105,4 +105,7 @@ def api_update_organization(
         "name": org.name,
         "sector": org.sector,
         "stage": org.stage,
+        "annual_revenue_usd": org.annual_revenue_usd,
+        "funding_goals": org.funding_goals,
+        "team_size": org.team_size,
     }

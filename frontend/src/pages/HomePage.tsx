@@ -57,8 +57,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           padding: "32px 24px",
         }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-cyan)" }}>$850M+</div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Documented Institutional Capital</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-cyan)" }}>$6.5M+</div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Active Pipeline</div>
           </div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-indigo)" }}>15 Categories</div>

@@ -46,6 +46,53 @@ def list_applications(db: Session, org_id: str) -> List[dict]:
     return results
 
 
+def get_application_workspace(db: Session, org_id: str, application_id: str) -> dict:
+    app = db.execute(
+        select(ApplicationRecord).where(
+            ApplicationRecord.application_id == application_id,
+            ApplicationRecord.organization_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application workspace not found.")
+
+    opp = db.execute(
+        select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == app.opportunity_id)
+    ).scalar_one_or_none()
+
+    docs = db.execute(
+        select(DocumentMetadataRecord).where(
+            DocumentMetadataRecord.application_id == application_id,
+            DocumentMetadataRecord.organization_id == org_id,
+        )
+    ).scalars().all()
+
+    return {
+        "application_id": app.application_id,
+        "organization_id": app.organization_id,
+        "opportunity_id": app.opportunity_id,
+        "opportunity_title": opp.title if opp else "Unknown Opportunity",
+        "provider": opp.provider if opp else "Unknown Provider",
+        "funding_type": opp.funding_type if opp else "GRANT",
+        "status": app.status,
+        "checklist_progress": app.checklist_progress,
+        "deadline_at": app.deadline_at.isoformat() if app.deadline_at else None,
+        "notes": app.notes,
+        "documents": [
+            {
+                "doc_id": d.doc_id,
+                "name": d.name,
+                "doc_type": d.doc_type,
+                "file_size_bytes": d.file_size_bytes,
+                "uploaded_at": d.uploaded_at.isoformat(),
+            }
+            for d in docs
+        ],
+        "created_at": app.created_at.isoformat(),
+        "updated_at": app.updated_at.isoformat(),
+    }
+
+
 def create_application_workspace(db: Session, org_id: str, opportunity_id: str, notes: str = "") -> dict:
     opp = db.execute(
         select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == opportunity_id)

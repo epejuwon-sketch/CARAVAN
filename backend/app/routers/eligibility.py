@@ -12,8 +12,16 @@ from app.services.eligibility_service import evaluate_eligibility, get_recommend
 router = APIRouter(prefix="/api/v1/eligibility", tags=["Eligibility & Matching"])
 
 
+from pydantic import BaseModel
+from typing import Optional
+
+
+class AssessRequestBody(BaseModel):
+    opportunity_id: str
+
+
 @router.post("/assess/{opportunity_id}")
-def api_assess_opportunity(
+def api_assess_opportunity_path(
     opportunity_id: str,
     principal: CaravanPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
@@ -22,6 +30,19 @@ def api_assess_opportunity(
         db,
         org_id=principal.organization_id,
         opportunity_id=opportunity_id,
+    )
+
+
+@router.post("/assess")
+def api_assess_opportunity_body(
+    body: AssessRequestBody,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    return evaluate_eligibility(
+        db,
+        org_id=principal.organization_id,
+        opportunity_id=body.opportunity_id,
     )
 
 

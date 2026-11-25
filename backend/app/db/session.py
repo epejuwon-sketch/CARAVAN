@@ -24,11 +24,43 @@ def reset_engine():
     _SessionLocal = None
 
 
+def normalize_database_url(raw_url: str) -> str:
+    cleaned = raw_url.strip()
+    if not cleaned or cleaned.startswith("sqlite"):
+        return cleaned
+    candidate = cleaned
+    if candidate.startswith("postgres://"):
+        candidate = "postgresql+psycopg://" + candidate[len("postgres://"):]
+    elif candidate.startswith("postgresql://"):
+        candidate = "postgresql+psycopg://" + candidate[len("postgresql://"):]
+    elif candidate.startswith("postgresql+psycopg2://"):
+        candidate = "postgresql+psycopg://" + candidate[len("postgresql+psycopg2://"):]
+    
+    from sqlalchemy.engine import make_url
+    try:
+        parsed = make_url(candidate)
+        if parsed.query:
+            NON_LIBPQ = {
+                "pgbouncer",
+                "connection_limit",
+                "pool_timeout",
+                "schema",
+                "supa",
+                "prisma",
+                "statement_cache_size",
+            }
+            filtered = {k: v for k, v in parsed.query.items() if k.lower() not in NON_LIBPQ}
+            parsed = parsed.set(query=filtered)
+        return parsed.render_as_string(hide_password=False)
+    except Exception:
+        return candidate
+
+
 def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        db_url = settings.DATABASE_URL
+        db_url = normalize_database_url(settings.DATABASE_URL)
         connect_args = {}
         if db_url.startswith("sqlite"):
             connect_args = {"check_same_thread": False}

@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api/v1/opportunities", tags=["Opportunities"])
 def api_list_opportunities(
     query: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
+    funding_type: Optional[str] = Query(default=None),
     geo: Optional[str] = Query(default=None),
+    country: Optional[str] = Query(default=None),
     sector: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     open_only: bool = Query(default=False),
@@ -24,11 +26,13 @@ def api_list_opportunities(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
+    eff_cat = category or funding_type
+    eff_geo = geo or country
     return list_opportunities(
         db,
         query=query,
-        category=category,
-        geo=geo,
+        category=eff_cat,
+        geo=eff_geo,
         sector=sector,
         status_filter=status,
         open_only=open_only,

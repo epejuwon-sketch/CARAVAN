@@ -63,7 +63,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
         </div>
 
         {/* Navigation Links */}
-        <nav className="row" style={{ gap: 8 }}>
+        <nav
+          className="row nav-links-row"
+          style={{
+            gap: 8,
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+            padding: "4px 0",
+            maxWidth: "100%",
+            scrollbarWidth: "none",
+          }}
+        >
           {!user ? (
             <>
               <button

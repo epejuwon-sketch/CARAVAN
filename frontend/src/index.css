@@ -63,6 +63,13 @@ button {
   .container {
     padding: 0 16px;
   }
+  .nav-links-row {
+    margin-left: 8px;
+  }
+  .nav-links-row button {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
 }
 
 .row {

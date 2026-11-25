@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.core.permissions import CaravanPrincipal, get_current_principal
 from app.services.application_service import (
     list_applications,
+    get_application_workspace,
     create_application_workspace,
     update_application_status,
     add_document_metadata,
@@ -43,6 +44,19 @@ def api_list_applications(
 ):
     apps = list_applications(db, org_id=principal.organization_id)
     return {"total": len(apps), "applications": apps}
+
+
+@router.get("/{application_id}")
+def api_get_application(
+    application_id: str,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    return get_application_workspace(
+        db,
+        org_id=principal.organization_id,
+        application_id=application_id,
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
