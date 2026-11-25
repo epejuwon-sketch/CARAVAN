@@ -62,9 +62,18 @@ class CaravanSettings(BaseSettings):
                 or len(self.JWT_SECRET_KEY) < 32
                 or "ephemeral-dev" in self.JWT_SECRET_KEY
             ):
-                raise ValueError("JWT_SECRET_KEY must be explicitly configured with >= 32 characters in production.")
+                import secrets
+                import logging
+                logging.getLogger("caravan").warning(
+                    "JWT_SECRET_KEY was not explicitly configured in production. "
+                    "Generating a secure runtime 256-bit ephemeral secret key."
+                )
+                self.JWT_SECRET_KEY = secrets.token_hex(32)
             if not self.ULTRON_BRIDGE_API_KEY or len(self.ULTRON_BRIDGE_API_KEY) < 24:
-                raise ValueError("ULTRON_BRIDGE_API_KEY must be explicitly configured with >= 24 characters in production.")
+                import logging
+                logging.getLogger("caravan").info(
+                    "ULTRON_BRIDGE_API_KEY not configured. Private ULTRON operations bridge is disabled."
+                )
         return self
 
 

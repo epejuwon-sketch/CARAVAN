@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
@@ -49,7 +49,17 @@ def api_register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login")
 def api_login(body: LoginRequest, db: Session = Depends(get_db)):
-    return authenticate_user(db, email=body.email, password=body.password)
+    try:
+        return authenticate_user(db, email=body.email, password=body.password)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging
+        logging.getLogger("caravan").exception("Unhandled error during authentication for %s: %s", getattr(body, "email", "unknown"), exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service temporarily encountered an internal issue. Please retry.",
+        )
 
 
 @router.get("/me")

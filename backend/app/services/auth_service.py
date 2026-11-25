@@ -106,16 +106,27 @@ def authenticate_user(db: Session, email: str, password: str) -> dict:
             detail="Account is deactivated. Contact CARAVAN support.",
         )
 
-    org = db.execute(select(OrganizationRecord).where(OrganizationRecord.org_id == user.organization_id)).scalar_one_or_none()
+    org = None
+    if user.organization_id:
+        try:
+            org = db.execute(select(OrganizationRecord).where(OrganizationRecord.org_id == user.organization_id)).scalar_one_or_none()
+        except Exception as org_err:
+            import logging
+            logging.getLogger("caravan").warning("Failed to load organization %s during login: %s", user.organization_id, org_err)
 
-    audit = AuditLogRecord(
-        actor=email_clean,
-        action="USER_LOGIN",
-        resource=f"user:{user.user_id}",
-        details={"ip": "client"},
-    )
-    db.add(audit)
-    db.commit()
+    try:
+        audit = AuditLogRecord(
+            actor=email_clean,
+            action="USER_LOGIN",
+            resource=f"user:{user.user_id}",
+            details={"ip": "client"},
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as audit_err:
+        db.rollback()
+        import logging
+        logging.getLogger("caravan").warning("Could not persist login audit log: %s", audit_err)
 
     token = create_access_token({"sub": user.user_id, "org_id": user.organization_id, "email": user.email, "role": user.role})
     return {

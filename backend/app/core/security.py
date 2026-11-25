@@ -21,9 +21,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if not hashed_password or not isinstance(hashed_password, str) or not plain_password:
+        return False
     try:
         return _PASSWORD_HASHER.verify(hashed_password, plain_password)
-    except (VerifyMismatchError, InvalidHashError):
+    except Exception:
         return False
 
 

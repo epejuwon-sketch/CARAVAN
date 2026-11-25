@@ -14,19 +14,35 @@ Base = declarative_base()
 
 _engine = None
 _SessionLocal = None
+_migrations_applied = False
 
 
 def reset_engine():
-    global _engine, _SessionLocal
+    global _engine, _SessionLocal, _migrations_applied
     if _engine is not None:
         _engine.dispose()
     _engine = None
     _SessionLocal = None
+    _migrations_applied = False
 
 
 def normalize_database_url(raw_url: str) -> str:
-    cleaned = raw_url.strip()
+    cleaned = raw_url.strip() if raw_url else ""
     if not cleaned or cleaned.startswith("sqlite"):
+        if not cleaned:
+            cleaned = "sqlite:///./caravan.db"
+        if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            return "sqlite:////tmp/caravan.db"
+        if cleaned.startswith("sqlite:///./") or cleaned == "sqlite:///caravan.db":
+            # Resolve relative sqlite URL relative to backend directory or existing caravan.db
+            backend_dir = Path(__file__).resolve().parents[2]
+            backend_db = backend_dir / "caravan.db"
+            if backend_db.exists():
+                return f"sqlite:///{backend_db}"
+            root_db = backend_dir.parent / "caravan.db"
+            if root_db.exists() and root_db.stat().st_size > 0:
+                return f"sqlite:///{root_db}"
+            return f"sqlite:///{backend_db}"
         return cleaned
     candidate = cleaned
     if candidate.startswith("postgres://"):
@@ -74,9 +90,11 @@ def get_engine():
 
 
 def get_session_factory():
-    global _SessionLocal
+    global _SessionLocal, _migrations_applied
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine(), future=True)
+        if not _migrations_applied:
+            run_migrations()
     return _SessionLocal
 
 
@@ -91,6 +109,7 @@ def get_db() -> Generator[Session, None, None]:
 
 def run_migrations():
     """Ensure database tables are initialized and created, and migrate missing columns."""
+    global _migrations_applied
     engine = get_engine()
     from app.db import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
@@ -233,3 +252,5 @@ def run_migrations():
                         conn.execute(text(f"ALTER TABLE caravan_documents ADD COLUMN {col_name} {col_def}"))
                     except Exception:
                         pass
+
+    _migrations_applied = True

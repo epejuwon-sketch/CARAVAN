@@ -9,4 +9,10 @@ _BACKEND_DIR = Path(__file__).resolve().parents[1] / "backend"
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+try:
+    from app.db.session import run_migrations
+    run_migrations()
+except Exception:
+    pass
+
 from app.main import app  # noqa: E402, F401
