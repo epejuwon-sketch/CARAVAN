@@ -87,7 +87,6 @@ function MainContent() {
 
       <main style={{ flex: 1 }}>
         {currentRoute === "home" && <HomePage onNavigate={navigate} />}
-        {currentRoute === "dashboard" && <DashboardPage onNavigate={navigate} />}
         {currentRoute === "admin" && (
           user?.role === "ADMIN" ? (
             <AdminDashboardPage onNavigate={navigate} />
@@ -115,11 +114,35 @@ function MainContent() {
         {currentRoute === "login" && <LoginPage onNavigate={navigate} />}
         {currentRoute === "register" && <RegisterPage onNavigate={navigate} />}
         {currentRoute === "discover" && <MarketplacePage onNavigate={navigate} />}
-        {currentRoute === "eligibility" && <EligibilityPage onNavigate={navigate} />}
-        {currentRoute === "applications" && <ApplicationsPage onNavigate={navigate} />}
-        {currentRoute === "saved" && <SavedPage onNavigate={navigate} />}
-        {currentRoute === "account" && <AccountPage onNavigate={navigate} />}
-        {currentRoute === "billing" && <BillingPage />}
+        {/* Customer Authenticated Routes */}
+        {["dashboard", "applications", "eligibility", "saved", "account", "billing"].includes(currentRoute) && !user ? (
+          <div className="container" style={{ paddingTop: 64, paddingBottom: 64, display: "flex", justifyContent: "center" }}>
+            <div className="card" style={{ maxWidth: 540, width: "100%", textAlign: "center", padding: "48px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+              <Lock size={44} style={{ color: "var(--accent-gold)" }} />
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF" }}>Authentication Required</h2>
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                Please sign in to access your organization workspace, applications, and saved programs.
+              </p>
+              <div className="row" style={{ gap: 12 }}>
+                <button type="button" className="btn btn-sm" onClick={() => navigate("login")}>
+                  Sign In
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate("register")}>
+                  Register Organization
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {currentRoute === "dashboard" && <DashboardPage onNavigate={navigate} />}
+            {currentRoute === "eligibility" && <EligibilityPage onNavigate={navigate} />}
+            {currentRoute === "applications" && <ApplicationsPage onNavigate={navigate} />}
+            {currentRoute === "saved" && <SavedPage onNavigate={navigate} />}
+            {currentRoute === "account" && <AccountPage onNavigate={navigate} />}
+            {currentRoute === "billing" && <BillingPage />}
+          </>
+        )}
         {currentRoute === "support" && <SupportPage />}
       </main>
 

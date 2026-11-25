@@ -50,3 +50,10 @@ def test_list_opportunities_and_categories(client: TestClient):
     assert "official_source_url" in detail_data
     assert "provenance_hash" in detail_data
     assert detail_data["verification_status"] == "VERIFIED"
+
+    # 6. Verify total count accuracy with pagination limit
+    paged_res = client.get("/api/v1/opportunities?limit=1")
+    assert paged_res.status_code == 200
+    paged_data = paged_res.json()
+    assert len(paged_data["opportunities"]) == 1
+    assert paged_data["total"] == 12

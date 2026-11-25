@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import select, and_, or_, desc
+from sqlalchemy import select, and_, or_, desc, func
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
@@ -77,8 +77,11 @@ def list_opportunities(
     stmt = stmt.order_by(desc(FundingOpportunityRecord.verified_at)).limit(limit).offset(offset)
     records = db.execute(stmt).scalars().all()
 
-    # Count total
-    total = len(records)
+    # Count total matching opportunities in database (independent of pagination limit)
+    count_stmt = select(func.count(FundingOpportunityRecord.opportunity_id))
+    if filters:
+        count_stmt = count_stmt.where(and_(*filters))
+    total = db.execute(count_stmt).scalar() or 0
 
     return {
         "total": total,
