@@ -24,12 +24,18 @@ POSTGRES_TEST_URL = os.getenv(
 )
 
 
+import secrets
+
+_TEST_EPHEMERAL_BRIDGE_KEY = f"test-ephemeral-{secrets.token_urlsafe(32)}"
+_TEST_EPHEMERAL_JWT_KEY = f"test-jwt-{secrets.token_urlsafe(32)}"
+
 @pytest.fixture(scope="module")
 def pg_client():
     """TestClient wired directly to real PostgreSQL 16 container."""
     os.environ["DATABASE_URL"] = POSTGRES_TEST_URL
-    os.environ["CARAVAN_ENV"] = "production"
-    os.environ["ULTRON_BRIDGE_API_KEY"] = "caravan-ultron-s2s-bridge-auth-key-production-2026"
+    os.environ["CARAVAN_ENV"] = "test"
+    os.environ["JWT_SECRET_KEY"] = _TEST_EPHEMERAL_JWT_KEY
+    os.environ["ULTRON_BRIDGE_API_KEY"] = _TEST_EPHEMERAL_BRIDGE_KEY
     get_settings.cache_clear()
     reset_engine()
 
@@ -427,7 +433,7 @@ def test_postgresql_s2s_bridge_and_ultron_integration(pg_client: TestClient):
     assert missing_res.status_code == 401
 
     # 2. Valid S2S key
-    valid_key = "caravan-ultron-s2s-bridge-auth-key-production-2026"
+    valid_key = _TEST_EPHEMERAL_BRIDGE_KEY
     bridge_headers = {"X-Ultron-Bridge-Key": valid_key}
     telemetry_res = client.get("/api/v1/bridge/telemetry", headers=bridge_headers)
     assert telemetry_res.status_code == 200

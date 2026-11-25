@@ -119,11 +119,19 @@ def require_permission(perm: str):
     return checker
 
 
+import secrets
+
 def verify_ultron_bridge(
     x_ultron_bridge_key: str = Header(None, alias="X-Ultron-Bridge-Key"),
 ) -> CaravanPrincipal:
     settings = get_settings()
-    if not x_ultron_bridge_key or x_ultron_bridge_key != settings.ULTRON_BRIDGE_API_KEY:
+    configured_key = settings.ULTRON_BRIDGE_API_KEY.strip()
+    if not configured_key or not x_ultron_bridge_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing ULTRON S2S Bridge authentication key.",
+        )
+    if not secrets.compare_digest(x_ultron_bridge_key.strip(), configured_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing ULTRON S2S Bridge authentication key.",

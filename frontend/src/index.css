@@ -30,14 +30,26 @@
   padding: 0;
 }
 
+html {
+  height: -webkit-fill-available;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   overflow-x: hidden;
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .hero-heading {
+    -webkit-text-fill-color: #FFFFFF !important;
+    color: #FFFFFF !important;
+  }
 }
 
 a {

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { User } from "../types";
-import { apiFetch } from "./api";
+import { apiFetch, safeGetStorage, safeSetStorage, safeRemoveStorage } from "./api";
 
 interface AuthContextType {
   user: User | null;
@@ -22,11 +22,11 @@ const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("caravan_token"));
+  const [token, setToken] = useState<string | null>(() => safeGetStorage("caravan_token"));
   const [loading, setLoading] = useState(true);
 
   async function loadMe() {
-    const savedToken = localStorage.getItem("caravan_token");
+    const savedToken = safeGetStorage("caravan_token");
     if (!savedToken) {
       setUser(null);
       setLoading(false);
@@ -43,7 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         organization_name: data.organization?.name || "My Organization",
       });
     } catch {
-      localStorage.removeItem("caravan_token");
+      safeRemoveStorage("caravan_token");
       setToken(null);
       setUser(null);
     } finally {
@@ -56,13 +56,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = (newToken: string, newUser: User) => {
-    localStorage.setItem("caravan_token", newToken);
+    safeSetStorage("caravan_token", newToken);
     setToken(newToken);
     setUser(newUser);
   };
 
   const logout = () => {
-    localStorage.removeItem("caravan_token");
+    safeRemoveStorage("caravan_token");
     setToken(null);
     setUser(null);
   };

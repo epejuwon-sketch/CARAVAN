@@ -23,16 +23,21 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         <div className="pill pill-cyan">
           <ShieldCheck size={13} /> Official Provenance Verified Funding Intelligence
         </div>
-        <h1 style={{
-          fontSize: "clamp(36px, 6vw, 64px)",
-          fontWeight: 800,
-          letterSpacing: "-0.03em",
-          lineHeight: 1.1,
-          maxWidth: 960,
-          background: "linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-        }}>
+        <h1
+          className="hero-heading"
+          style={{
+            fontSize: "clamp(36px, 6vw, 64px)",
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            lineHeight: 1.1,
+            maxWidth: 960,
+            color: "#FFFFFF",
+            background: "linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
           Capital Intelligence for High-Growth Ventures &amp; Global Scale
         </h1>
         <p className="muted" style={{ fontSize: "clamp(15px, 2vw, 18px)", maxWidth: 680, lineHeight: 1.6 }}>
@@ -57,8 +62,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           padding: "32px 24px",
         }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-cyan)" }}>$6.5M+</div>
-            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Active Pipeline</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-cyan)" }}>12 Programs</div>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Institutional Pipeline</div>
           </div>
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-indigo)" }}>15 Categories</div>
