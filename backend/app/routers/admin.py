@@ -255,6 +255,32 @@ def api_admin_verify_links(
     )
 
 
+@router.get("/intelligence/summary")
+def api_admin_intelligence_summary(
+    principal: CaravanPrincipal = Depends(require_permission("admin:read")),
+    db: Session = Depends(get_db),
+):
+    """Retrieve Funding Intelligence Centre summary telemetry."""
+    return DiscoveryEngine.get_intelligence_summary(db)
+
+
+@router.post("/intelligence/scan-now")
+def api_admin_intelligence_scan(
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Trigger continuous discovery crawler scan across institutional channels."""
+    return DiscoveryEngine.run_discovery_scan(db, actor=f"ADMIN:{principal.email or principal.user_id}")
+
+
+@router.get("/intelligence/sources")
+def api_admin_intelligence_sources(
+    principal: CaravanPrincipal = Depends(require_permission("admin:read")),
+):
+    """List monitored official funding registries and crawler status."""
+    return {"sources": DiscoveryEngine.list_monitored_sources()}
+
+
 
 @router.patch("/users/{user_id}/role")
 def api_update_user_role(

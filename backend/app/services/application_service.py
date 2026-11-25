@@ -115,6 +115,9 @@ def create_application_workspace(db: Session, org_id: str, opportunity_id: str, 
             "already_existed": True,
         }
 
+    from app.core.entitlements import check_can_create_application
+    check_can_create_application(db, org_id)
+
     # Initialize checklist from opportunity requirements
     reqs = opp.application_requirements or [
         "Executive Summary & Mission",
@@ -242,6 +245,9 @@ def add_document_metadata(
             detail=f"File size must be between 1 byte and 25 MB ({MAX_FILE_BYTES} bytes).",
         )
 
+    from app.core.entitlements import check_can_upload_document
+    check_can_upload_document(db, org_id, application_id)
+
     doc_id = gen_id("doc")
     doc = DocumentMetadataRecord(
         doc_id=doc_id,
@@ -308,6 +314,9 @@ def upload_document_binary(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File extension '.{ext}' is not permitted. Allowed: {', '.join(sorted(allowed_exts))}",
         )
+
+    from app.core.entitlements import check_can_upload_document
+    check_can_upload_document(db, org_id, application_id)
 
     # 4. Anti-malware and magic header security inspection
     scan_report = scan_file_bytes(file_bytes, clean_name)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -30,6 +30,12 @@ class UpdateOrgRequest(BaseModel):
     years_in_operation: Optional[int] = None
     female_led: Optional[bool] = None
     youth_led: Optional[bool] = None
+    products_services: Optional[str] = None
+    target_customers: Optional[str] = None
+    business_model: Optional[str] = None
+    growth_objectives: Optional[str] = None
+    intended_use_of_funds: Optional[str] = None
+    previous_funding_history: Optional[List[dict]] = None
 
 
 @router.get("/organization")
@@ -47,6 +53,9 @@ def api_get_organization(
         select(UserRecord).where(UserRecord.organization_id == principal.organization_id)
     ).scalars().all()
 
+    from app.services.copilot_service import calculate_business_readiness
+    readiness = calculate_business_readiness(org)
+
     return {
         "org_id": org.org_id,
         "name": org.name,
@@ -63,6 +72,14 @@ def api_get_organization(
         "years_in_operation": getattr(org, "years_in_operation", 1),
         "female_led": getattr(org, "female_led", False),
         "youth_led": getattr(org, "youth_led", True),
+        "products_services": getattr(org, "products_services", ""),
+        "target_customers": getattr(org, "target_customers", ""),
+        "business_model": getattr(org, "business_model", "B2B"),
+        "growth_objectives": getattr(org, "growth_objectives", ""),
+        "intended_use_of_funds": getattr(org, "intended_use_of_funds", ""),
+        "previous_funding_history": getattr(org, "previous_funding_history", []),
+        "readiness_score": readiness["readiness_score"],
+        "readiness_level": readiness["readiness_level"],
         "team_members": [
             {
                 "user_id": u.user_id,
@@ -115,6 +132,23 @@ def api_update_organization(
         org.female_led = body.female_led
     if body.youth_led is not None:
         org.youth_led = body.youth_led
+    if body.products_services is not None:
+        org.products_services = body.products_services
+    if body.target_customers is not None:
+        org.target_customers = body.target_customers
+    if body.business_model is not None:
+        org.business_model = body.business_model
+    if body.growth_objectives is not None:
+        org.growth_objectives = body.growth_objectives
+    if body.intended_use_of_funds is not None:
+        org.intended_use_of_funds = body.intended_use_of_funds
+    if body.previous_funding_history is not None:
+        org.previous_funding_history = body.previous_funding_history
+
+    from app.services.copilot_service import calculate_business_readiness
+    readiness = calculate_business_readiness(org)
+    org.readiness_score = readiness["readiness_score"]
+    org.readiness_breakdown = readiness["pillars"]
 
     db.commit()
     db.refresh(org)
@@ -133,6 +167,14 @@ def api_update_organization(
         "years_in_operation": getattr(org, "years_in_operation", 1),
         "female_led": getattr(org, "female_led", False),
         "youth_led": getattr(org, "youth_led", True),
+        "products_services": getattr(org, "products_services", ""),
+        "target_customers": getattr(org, "target_customers", ""),
+        "business_model": getattr(org, "business_model", "B2B"),
+        "growth_objectives": getattr(org, "growth_objectives", ""),
+        "intended_use_of_funds": getattr(org, "intended_use_of_funds", ""),
+        "previous_funding_history": getattr(org, "previous_funding_history", []),
+        "readiness_score": org.readiness_score,
+        "readiness_level": readiness["readiness_level"],
     }
 
 

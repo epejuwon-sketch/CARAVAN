@@ -62,6 +62,9 @@ def api_save_opportunity(
     if existing:
         return {"saved_id": existing.saved_id, "saved": True, "already_saved": True}
 
+    from app.core.entitlements import check_can_save_opportunity
+    check_can_save_opportunity(db, principal.organization_id)
+
     rec = SavedOpportunityRecord(
         saved_id=gen_id("sav"),
         organization_id=principal.organization_id,
@@ -87,6 +90,9 @@ def api_save_opportunity_path(
     ).scalar_one_or_none()
     if existing:
         return {"saved_id": existing.saved_id, "saved": True, "already_saved": True}
+
+    from app.core.entitlements import check_can_save_opportunity
+    check_can_save_opportunity(db, principal.organization_id)
 
     rec = SavedOpportunityRecord(
         saved_id=gen_id("sav"),

@@ -31,6 +31,31 @@ def api_get_current_subscription(
     return get_organization_subscription(db, org_id=principal.organization_id)
 
 
+@router.get("/usage")
+def api_get_subscription_usage(
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    from app.core.entitlements import get_tenant_entitlements_and_usage
+    return get_tenant_entitlements_and_usage(db, org_id=principal.organization_id)
+
+
+@router.post("/sandbox-upgrade")
+def api_sandbox_upgrade(
+    payload: dict,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    from app.services.payment_service import sandbox_upgrade_organization_subscription
+    target_tier = payload.get("tier", "STARTER")
+    return sandbox_upgrade_organization_subscription(
+        db,
+        org_id=principal.organization_id,
+        target_tier=target_tier,
+        actor=principal.email or principal.user_id,
+    )
+
+
 @router.post("/webhook/{provider}")
 async def api_payment_webhook(
     provider: str,

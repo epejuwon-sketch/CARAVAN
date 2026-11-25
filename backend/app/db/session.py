@@ -129,6 +129,14 @@ def run_migrations():
                 "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS years_in_operation INTEGER DEFAULT 1",
                 "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS female_led BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS youth_led BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS products_services TEXT DEFAULT ''",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS target_customers VARCHAR(255) DEFAULT ''",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS business_model VARCHAR(120) DEFAULT 'B2B'",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS growth_objectives TEXT DEFAULT ''",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS intended_use_of_funds TEXT DEFAULT ''",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS previous_funding_history JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_score FLOAT DEFAULT 0.0",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_breakdown JSON DEFAULT '{}'",
             ]
             for stmt in migration_statements:
                 try:
@@ -177,6 +185,14 @@ def run_migrations():
                 ("years_in_operation", "INTEGER DEFAULT 1"),
                 ("female_led", "BOOLEAN DEFAULT 0"),
                 ("youth_led", "BOOLEAN DEFAULT 1"),
+                ("products_services", "TEXT DEFAULT ''"),
+                ("target_customers", "VARCHAR(255) DEFAULT ''"),
+                ("business_model", "VARCHAR(120) DEFAULT 'B2B'"),
+                ("growth_objectives", "TEXT DEFAULT ''"),
+                ("intended_use_of_funds", "TEXT DEFAULT ''"),
+                ("previous_funding_history", "JSON DEFAULT '[]'"),
+                ("readiness_score", "FLOAT DEFAULT 0.0"),
+                ("readiness_breakdown", "JSON DEFAULT '{}'"),
             ]
             for col_name, col_def in sqlite_org_cols:
                 if col_name not in existing_org_cols:

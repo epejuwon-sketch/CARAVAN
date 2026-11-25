@@ -11,6 +11,7 @@ import {
   Users,
   CheckCircle2,
   BarChart3,
+  Sparkles,
 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { CaravanLogo } from "../brand/CaravanLogo";
@@ -95,6 +96,20 @@ export const PortalLayout: React.FC<PortalLayoutProps> = ({
             >
               <FolderKanban size={18} />
               <span>Applications</span>
+            </button>
+
+            <button
+              type="button"
+              className={`sidebar-link ${currentRoute === "copilot" ? "active" : ""}`}
+              style={
+                currentRoute === "copilot"
+                  ? { backgroundColor: "#C69D49", color: "#000000", fontWeight: 700 }
+                  : undefined
+              }
+              onClick={() => onNavigate("copilot")}
+            >
+              <Sparkles size={18} />
+              <span>AI Copilot</span>
             </button>
 
             <button

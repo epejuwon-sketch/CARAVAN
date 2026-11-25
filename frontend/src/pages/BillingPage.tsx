@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { CreditCard, CheckCircle2, ShieldCheck, ArrowRight, Zap, Lock } from "lucide-react";
+import { CreditCard, CheckCircle2, ShieldCheck, ArrowRight, Zap, Lock, Sparkles, FolderKanban, Bookmark, FileText } from "lucide-react";
 import { Subscription } from "../types";
 import { apiFetch } from "../lib/api";
 import { StatusBadge } from "../components/ui/DesignSystem";
 
 export const BillingPage: React.FC = () => {
   const [sub, setSub] = useState<Subscription | null>(null);
+  const [usage, setUsage] = useState<any | null>(null);
   const [tiers, setTiers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
@@ -14,12 +15,14 @@ export const BillingPage: React.FC = () => {
   async function loadBilling() {
     setLoading(true);
     try {
-      const [cur, allTiers] = await Promise.all([
+      const [cur, allTiers, usageData] = await Promise.all([
         apiFetch<any>("/api/v1/subscriptions/current"),
         apiFetch<any>("/api/v1/subscriptions/tiers"),
+        apiFetch<any>("/api/v1/subscriptions/usage"),
       ]);
       setSub(cur);
       setTiers(allTiers.tiers || []);
+      setUsage(usageData);
     } catch (err: any) {
       setMsg(err.message || "Failed to load billing");
     } finally {
@@ -31,41 +34,15 @@ export const BillingPage: React.FC = () => {
     loadBilling();
   }, []);
 
-  async function handleSimulateSandboxPayment(provider: "FLUTTERWAVE" | "PAYSTACK", tier: string) {
+  async function handleInstantSandboxUpgrade(tier: string) {
     setSimulating(true);
     setMsg("");
     try {
-      const endpoint = `/api/v1/subscriptions/webhook/${provider.toLowerCase()}`;
-      const payload =
-        provider === "FLUTTERWAVE"
-          ? {
-              event: "charge.completed",
-              data: {
-                id: Date.now(),
-                tx_ref: `flw_sandbox_${Date.now()}`,
-                amount: tier === "STARTER" ? 29000.0 : 75000.0,
-                currency: "NGN",
-                status: "successful",
-                meta: { org_id: sub?.organization_id, tier },
-              },
-            }
-          : {
-              event: "charge.success",
-              data: {
-                reference: `pstk_sandbox_${Date.now()}`,
-                amount: tier === "STARTER" ? 2900000 : 7500000,
-                currency: "NGN",
-                status: "success",
-                metadata: { org_id: sub?.organization_id, tier },
-              },
-            };
-
-      const res = await apiFetch<any>(endpoint, {
+      const res = await apiFetch<any>("/api/v1/subscriptions/sandbox-upgrade", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ tier }),
       });
-
-      setMsg(`Sandbox verification confirmed: ${res.detail || "Subscription upgraded"}`);
+      setMsg(`Upgraded successfully to ${res.tier_name || tier} (Sandbox Mode)`);
       await loadBilling();
     } catch (err: any) {
       setMsg(err.message);
@@ -75,7 +52,7 @@ export const BillingPage: React.FC = () => {
   }
 
   return (
-    <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 28, maxWidth: 960 }}>
+    <div className="container" style={{ paddingTop: 32, paddingBottom: 60, display: "flex", flexDirection: "column", gap: 28, maxWidth: 1040 }}>
       <div>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#FFFFFF" }}>
           Subscription &amp; Entitlements
@@ -85,7 +62,11 @@ export const BillingPage: React.FC = () => {
         </p>
       </div>
 
-      {msg && <div className="pill pill-cyan" style={{ padding: "8px 14px" }}>{msg}</div>}
+      {msg && (
+        <div className="pill pill-gold" style={{ padding: "10px 16px", fontSize: 13, alignSelf: "flex-start" }}>
+          {msg}
+        </div>
+      )}
 
       {/* Active Subscription Status Banner */}
       {sub && (
@@ -104,7 +85,7 @@ export const BillingPage: React.FC = () => {
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span className="muted" style={{ fontSize: 12 }}>Current Subscription</span>
             <div className="row" style={{ gap: 10 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: "#FFFFFF" }}>{sub.tier_name}</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: "#FFFFFF" }}>{sub.tier_name}</span>
               <StatusBadge status={sub.status} />
             </div>
             <div className="muted" style={{ fontSize: 12 }}>
@@ -114,23 +95,133 @@ export const BillingPage: React.FC = () => {
           </div>
 
           <div className="row" style={{ gap: 8, fontSize: 12, color: "var(--text-secondary)" }}>
-            <span className="row" style={{ gap: 4 }}>
-              <Lock size={12} /> Sandbox Mode Active (No live charges)
+            <span className="row" style={{ gap: 6, backgroundColor: "rgba(198, 157, 73, 0.1)", padding: "6px 12px", borderRadius: "var(--radius-sm)", border: "1px solid rgba(198, 157, 73, 0.2)" }}>
+              <Lock size={13} color="var(--accent-gold-bright)" /> Sandbox Billing Mode Active
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Live Quota Usage Meters */}
+      {usage && usage.quotas && (
+        <div className="card" style={{ padding: "24px 28px", backgroundColor: "var(--bg-card)", display: "flex", flexDirection: "column", gap: 20 }}>
+          <div className="row-between">
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF" }}>
+              Monthly Capacity &amp; Resource Usage
+            </h2>
+            <span className="mono muted" style={{ fontSize: 12 }}>
+              Cycle: {usage.billing_cycle}
+            </span>
+          </div>
+
+          <div className="grid-4" style={{ gap: 16 }}>
+            {/* Copilot Credits */}
+            <div style={{ backgroundColor: "var(--bg-secondary)", padding: "16px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="row-between">
+                <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <Sparkles size={14} color="var(--accent-gold-bright)" /> Copilot Credits
+                </span>
+                <span className="mono gold-text" style={{ fontSize: 13, fontWeight: 700 }}>
+                  {usage.quotas.copilot_credits.used} / {usage.quotas.copilot_credits.limit}
+                </span>
+              </div>
+              <div style={{ width: "100%", height: 6, backgroundColor: "#222222", borderRadius: 3, overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${Math.min(100, (usage.quotas.copilot_credits.used / usage.quotas.copilot_credits.limit) * 100)}%`,
+                    backgroundColor: "#C69D49",
+                  }}
+                />
+              </div>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {usage.quotas.copilot_credits.remaining} prompt credits remaining
+              </span>
+            </div>
+
+            {/* Active Applications */}
+            <div style={{ backgroundColor: "var(--bg-secondary)", padding: "16px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="row-between">
+                <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <FolderKanban size={14} color="#60A5FA" /> Application Pipelines
+                </span>
+                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF" }}>
+                  {usage.quotas.active_applications.used} / {usage.quotas.active_applications.unlimited ? "∞" : usage.quotas.active_applications.limit}
+                </span>
+              </div>
+              <div style={{ width: "100%", height: 6, backgroundColor: "#222222", borderRadius: 3, overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: usage.quotas.active_applications.unlimited
+                      ? "10%"
+                      : `${Math.min(100, (usage.quotas.active_applications.used / usage.quotas.active_applications.limit) * 100)}%`,
+                    backgroundColor: "#60A5FA",
+                  }}
+                />
+              </div>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {usage.quotas.active_applications.unlimited ? "Unlimited pipelines" : `${usage.quotas.active_applications.remaining} available`}
+              </span>
+            </div>
+
+            {/* Saved Opportunities */}
+            <div style={{ backgroundColor: "var(--bg-secondary)", padding: "16px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="row-between">
+                <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <Bookmark size={14} color="#34D399" /> Bookmarks
+                </span>
+                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF" }}>
+                  {usage.quotas.saved_opportunities.used} / {usage.quotas.saved_opportunities.unlimited ? "∞" : usage.quotas.saved_opportunities.limit}
+                </span>
+              </div>
+              <div style={{ width: "100%", height: 6, backgroundColor: "#222222", borderRadius: 3, overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: usage.quotas.saved_opportunities.unlimited
+                      ? "10%"
+                      : `${Math.min(100, (usage.quotas.saved_opportunities.used / usage.quotas.saved_opportunities.limit) * 100)}%`,
+                    backgroundColor: "#34D399",
+                  }}
+                />
+              </div>
+              <span className="muted" style={{ fontSize: 11 }}>
+                {usage.quotas.saved_opportunities.unlimited ? "Unlimited bookmarks" : `${usage.quotas.saved_opportunities.remaining} slots remaining`}
+              </span>
+            </div>
+
+            {/* Documents */}
+            <div style={{ backgroundColor: "var(--bg-secondary)", padding: "16px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div className="row-between">
+                <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
+                  <FileText size={14} color="#F472B6" /> Documents Vault
+                </span>
+                <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF" }}>
+                  {usage.quotas.documents_per_app.total_documents} docs
+                </span>
+              </div>
+              <div style={{ width: "100%", height: 6, backgroundColor: "#222222", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: "25%", backgroundColor: "#F472B6" }} />
+              </div>
+              <span className="muted" style={{ fontSize: 11 }}>
+                Max {usage.quotas.documents_per_app.unlimited ? "Unlimited" : usage.quotas.documents_per_app.limit} docs / workspace
+              </span>
+            </div>
           </div>
         </div>
       )}
 
       {/* Tiers Grid */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700 }}>Available Tier Entitlements</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF" }}>Available Tier Entitlements</h2>
 
         <div className="grid-3" style={{ gap: 16 }}>
-          {tiers.map((t) => {
-            const isCurrent = sub?.tier === t.id;
+          {tiers.slice(0, 6).map((t) => {
+            const isCurrent = sub?.tier === t.tier;
             return (
               <div
-                key={t.id}
+                key={t.tier}
                 className={`card ${isCurrent ? "card-gold" : ""}`}
                 style={{
                   display: "flex",
@@ -139,11 +230,12 @@ export const BillingPage: React.FC = () => {
                   gap: 16,
                   padding: "24px 20px",
                   backgroundColor: "var(--bg-card)",
+                  border: isCurrent ? "1.5px solid #C69D49" : "1px solid var(--border-subtle)",
                 }}
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div className="row-between">
-                    <strong style={{ fontSize: 16 }}>{t.name}</strong>
+                    <strong style={{ fontSize: 16, color: "#FFFFFF" }}>{t.name}</strong>
                     {isCurrent && <span className="pill pill-gold">Active</span>}
                   </div>
 
@@ -159,27 +251,16 @@ export const BillingPage: React.FC = () => {
                   </ul>
                 </div>
 
-                {!isCurrent && t.id !== "FREE" && (
-                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      style={{ flex: 1 }}
-                      disabled={simulating}
-                      onClick={() => handleSimulateSandboxPayment("PAYSTACK", t.id)}
-                    >
-                      Paystack
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      style={{ flex: 1 }}
-                      disabled={simulating}
-                      onClick={() => handleSimulateSandboxPayment("FLUTTERWAVE", t.id)}
-                    >
-                      Flutterwave
-                    </button>
-                  </div>
+                {!isCurrent && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ width: "100%", justifyContent: "center" }}
+                    disabled={simulating}
+                    onClick={() => handleInstantSandboxUpgrade(t.tier)}
+                  >
+                    Activate {t.name} (Sandbox)
+                  </button>
                 )}
               </div>
             );

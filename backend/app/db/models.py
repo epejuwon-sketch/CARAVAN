@@ -61,6 +61,14 @@ class OrganizationRecord(Base):
     years_in_operation = Column(Integer, default=1, nullable=False)
     female_led = Column(Boolean, default=False, nullable=False)
     youth_led = Column(Boolean, default=True, nullable=False)
+    products_services = Column(Text, default="", nullable=False)
+    target_customers = Column(String(255), default="", nullable=False)
+    business_model = Column(String(120), default="B2B", nullable=False)
+    growth_objectives = Column(Text, default="", nullable=False)
+    intended_use_of_funds = Column(Text, default="", nullable=False)
+    previous_funding_history = Column(JSON, default=list, nullable=False)
+    readiness_score = Column(Float, default=0.0, nullable=False)
+    readiness_breakdown = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -251,3 +259,48 @@ class AuditLogRecord(Base):
     outcome = Column(String(32), default="SUCCESS", nullable=False)
     details = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class OrganizationUsageRecord(Base):
+    __tablename__ = "caravan_organization_usage"
+
+    usage_id = Column(String(64), primary_key=True, default=lambda: gen_id("usg"))
+    organization_id = Column(String(64), nullable=False, index=True)
+    billing_cycle = Column(String(16), nullable=False, index=True)  # YYYY-MM
+    copilot_prompts_used = Column(Integer, default=0, nullable=False)
+    copilot_tokens_used = Column(Integer, default=0, nullable=False)
+    eligibility_evaluations_used = Column(Integer, default=0, nullable=False)
+    custom_quotas = Column(JSON, default=dict, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_org_usage_cycle", "organization_id", "billing_cycle", unique=True),
+    )
+
+
+class CopilotSessionRecord(Base):
+    __tablename__ = "caravan_copilot_sessions"
+
+    session_id = Column(String(64), primary_key=True, default=lambda: gen_id("cps"))
+    organization_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    title = Column(String(200), default="Funding Strategy Consultation", nullable=False)
+    context_mode = Column(String(32), default="GENERAL", nullable=False)  # GENERAL, OPPORTUNITY, APPLICATION, READINESS
+    target_id = Column(String(64), nullable=True)  # opportunity_id or application_id
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CopilotMessageRecord(Base):
+    __tablename__ = "caravan_copilot_messages"
+
+    message_id = Column(String(64), primary_key=True, default=lambda: gen_id("cpm"))
+    session_id = Column(String(64), ForeignKey("caravan_copilot_sessions.session_id", ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(String(64), nullable=False, index=True)
+    role = Column(String(32), default="USER", nullable=False)  # USER, ASSISTANT, SYSTEM
+    content = Column(Text, nullable=False)
+    citations = Column(JSON, default=list, nullable=False)
+    actions = Column(JSON, default=list, nullable=False)
+    tokens_used = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+

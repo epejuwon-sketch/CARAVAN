@@ -24,12 +24,15 @@ CARAVAN_SUBSCRIPTION_TIERS = {
         "name": "Community Explorer",
         "price_usd": 0.0,
         "price_ngn": 0.0,
+        "monthly_copilot_credits": 20,
+        "max_saved": 5,
+        "max_apps": 1,
         "features": [
             "Access to open verified funding catalog",
             "3 active eligibility evaluations per month",
             "1 application preparation workspace",
+            "20 CARAVAN Copilot prompt credits / month",
             "Weekly email intelligence digests",
-            "Community forum access",
         ],
     },
     "STARTER": {
@@ -37,13 +40,16 @@ CARAVAN_SUBSCRIPTION_TIERS = {
         "name": "Emerging Founder",
         "price_usd": 19.0,
         "price_ngn": 29000.0,
+        "monthly_copilot_credits": 100,
+        "max_saved": 25,
+        "max_apps": 3,
         "features": [
             "Full verified funding catalog across Africa & UK",
             "Unlimited eligibility match scoring",
-            "5 active application pipelines",
+            "3 active application pipelines",
+            "100 CARAVAN Copilot prompt credits / month",
             "Document checklist tracking",
-            "Deadline countdown alerts via email & SMS",
-            "Standard support response (within 24 hours)",
+            "Export readiness & eligibility reports",
         ],
     },
     "GROWTH": {
@@ -51,11 +57,14 @@ CARAVAN_SUBSCRIPTION_TIERS = {
         "name": "Scaling Venture",
         "price_usd": 49.0,
         "price_ngn": 75000.0,
+        "monthly_copilot_credits": 500,
+        "max_saved": 100,
+        "max_apps": 15,
         "features": [
             "All Emerging Founder features",
             "15 active application pipelines",
+            "500 CARAVAN Copilot prompt credits / month",
             "AI-assisted proposal outline drafting",
-            "Investor & grantmaker provenance intelligence",
             "Team workspace (up to 3 collaborator seats)",
             "Priority support queue",
         ],
@@ -65,27 +74,65 @@ CARAVAN_SUBSCRIPTION_TIERS = {
         "name": "Institutional Scale",
         "price_usd": 99.0,
         "price_ngn": 150000.0,
+        "monthly_copilot_credits": 2000,
+        "max_saved": 500,
+        "max_apps": 50,
         "features": [
             "All Scaling Venture features",
-            "Unlimited application pipelines",
+            "50 application pipelines",
+            "2,000 CARAVAN Copilot prompt credits / month",
             "Multi-organization portfolio management",
             "Concessionary debt & DFI facility tracking",
             "Dedicated onboarding specialist",
-            "Direct Slack / WhatsApp support bridge",
         ],
     },
+    "BUSINESS": {
+        "tier": "BUSINESS",
+        "name": "Venture Studio & Fund",
+        "price_usd": 249.0,
+        "price_ngn": 380000.0,
+        "monthly_copilot_credits": 10000,
+        "max_saved": 999999,
+        "max_apps": 999999,
+        "features": [
+            "All Institutional Scale features",
+            "Unlimited application pipelines",
+            "10,000 CARAVAN Copilot prompt credits / month",
+            "Unlimited portfolio company workspaces",
+            "Team workspace (up to 25 collaborator seats)",
+            "API access for private dealflow integration",
+        ],
+    },
+    "ENTERPRISE": {
+        "tier": "ENTERPRISE",
+        "name": "Sovereign & DFI Enterprise",
+        "price_usd": 0.0,
+        "price_ngn": 0.0,
+        "monthly_copilot_credits": 50000,
+        "max_saved": 999999,
+        "max_apps": 999999,
+        "features": [
+            "Bespoke national or regional funding directories",
+            "Sovereign data residency & on-premise deployments",
+            "Unlimited Copilot credits & custom fine-tuned model",
+            "Multi-stakeholder review committees",
+            "SLA guarantee & custom audit logging",
+        ],
+    },
+    # Backward compatibility aliases
     "INSTITUTIONAL": {
         "tier": "INSTITUTIONAL",
         "name": "Venture Studio & Fund",
         "price_usd": 249.0,
         "price_ngn": 380000.0,
+        "monthly_copilot_credits": 10000,
+        "max_saved": 999999,
+        "max_apps": 999999,
         "features": [
             "All Institutional Scale features",
-            "Unlimited portfolio company workspaces",
-            "Custom intake and grant syndication feeds",
-            "Automated LP and grantmaker compliance reporting",
+            "Unlimited application pipelines",
+            "10,000 CARAVAN Copilot prompt credits / month",
             "API access for private dealflow integration",
-            "Dedicated relationship director",
         ],
     },
     "CUSTOM": {
@@ -93,11 +140,12 @@ CARAVAN_SUBSCRIPTION_TIERS = {
         "name": "Sovereign & DFI Enterprise",
         "price_usd": 0.0,
         "price_ngn": 0.0,
+        "monthly_copilot_credits": 50000,
+        "max_saved": 999999,
+        "max_apps": 999999,
         "features": [
             "Bespoke national or regional funding directories",
             "Sovereign data residency & on-premise deployments",
-            "Multi-stakeholder review committees",
-            "SLA guarantee & custom audit logging",
         ],
     },
 }
@@ -107,7 +155,7 @@ def get_pricing_tiers() -> Dict[str, Any]:
     return {
         "currency_base": "USD",
         "nigeria_currency": "NGN",
-        "supported_providers": ["FLUTTERWAVE", "PAYSTACK"],
+        "supported_providers": ["FLUTTERWAVE", "PAYSTACK", "SANDBOX"],
         "sandbox_mode": True,
         "tiers": list(CARAVAN_SUBSCRIPTION_TIERS.values()),
     }
@@ -115,7 +163,8 @@ def get_pricing_tiers() -> Dict[str, Any]:
 
 def get_organization_subscription(db: Session, org_id: str) -> dict:
     sub = db.execute(select(SubscriptionRecord).where(SubscriptionRecord.organization_id == org_id)).scalar_one_or_none()
-    tier_name = sub.tier if sub else "FREE"
+    raw_tier = sub.tier if sub else "FREE"
+    tier_name = raw_tier.upper()
     tier_info = CARAVAN_SUBSCRIPTION_TIERS.get(tier_name, CARAVAN_SUBSCRIPTION_TIERS["FREE"])
 
     return {
@@ -129,6 +178,78 @@ def get_organization_subscription(db: Session, org_id: str) -> dict:
         "billing_provider": sub.billing_provider if sub else "MANUAL",
         "renewal_date": sub.renewal_date.isoformat() if sub and sub.renewal_date else None,
         "features": tier_info["features"],
+    }
+
+
+def sandbox_upgrade_organization_subscription(
+    db: Session,
+    org_id: str,
+    target_tier: str,
+    actor: str = "customer",
+) -> dict:
+    """Instantly activate or simulate upgrading to any subscription tier in sandbox mode."""
+    target_clean = target_tier.strip().upper()
+    if target_clean not in CARAVAN_SUBSCRIPTION_TIERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid subscription tier '{target_tier}'. Valid tiers: {list(CARAVAN_SUBSCRIPTION_TIERS.keys())}",
+        )
+
+    tier_info = CARAVAN_SUBSCRIPTION_TIERS[target_clean]
+    sub = db.execute(
+        select(SubscriptionRecord).where(SubscriptionRecord.organization_id == org_id)
+    ).scalar_one_or_none()
+
+    renewal = datetime.now(timezone.utc) + timedelta(days=30)
+    if sub:
+        sub.tier = target_clean
+        sub.status = "ACTIVE"
+        sub.billing_provider = "SANDBOX"
+        sub.price_usd_monthly = tier_info["price_usd"]
+        sub.renewal_date = renewal
+    else:
+        sub = SubscriptionRecord(
+            subscription_id=gen_id("sub"),
+            organization_id=org_id,
+            tier=target_clean,
+            price_usd_monthly=tier_info["price_usd"],
+            billing_provider="SANDBOX",
+            status="ACTIVE",
+            renewal_date=renewal,
+        )
+        db.add(sub)
+
+    # Record sandbox transaction
+    tx = PaymentTransactionRecord(
+        tx_id=gen_id("tx"),
+        organization_id=org_id,
+        provider="SANDBOX",
+        reference=f"sbx_{gen_id('ref')}",
+        amount=tier_info["price_ngn"],
+        currency="NGN",
+        tier=target_clean,
+        status="SUCCESSFUL",
+        metadata_json={"simulated_upgrade": True, "actor": actor},
+    )
+    db.add(tx)
+
+    audit = AuditLogRecord(
+        actor=actor,
+        action="SUBSCRIPTION_UPGRADED_SANDBOX",
+        resource=f"subscription:{sub.subscription_id}",
+        details={"org_id": org_id, "tier": target_clean, "price_usd": tier_info["price_usd"]},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "status": "UPGRADED",
+        "organization_id": org_id,
+        "tier": target_clean,
+        "tier_name": tier_info["name"],
+        "price_usd": tier_info["price_usd"],
+        "renewal_date": renewal.isoformat(),
+        "billing_provider": "SANDBOX",
     }
 
 

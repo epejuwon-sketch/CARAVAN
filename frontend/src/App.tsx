@@ -16,6 +16,7 @@ import { BillingPage } from "./pages/BillingPage";
 import { SupportPage } from "./pages/SupportPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { CopilotPage } from "./pages/CopilotPage";
 import {
   HowItWorksPage,
   AboutPage,
@@ -94,6 +95,7 @@ function MainContent() {
       case "account": return <AccountPage onNavigate={navigate} />;
       case "billing": return <BillingPage />;
       case "support": return <SupportPage />;
+      case "copilot": return <CopilotPage onNavigate={navigate} />;
       default: return <HomePage onNavigate={navigate} />;
     }
   };
@@ -107,6 +109,7 @@ function MainContent() {
     "eligibility",
     "saved",
     "billing",
+    "copilot",
   ].includes(currentRoute);
 
   if (isPortalRoute) {

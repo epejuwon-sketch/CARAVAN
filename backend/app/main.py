@@ -23,6 +23,7 @@ from app.routers import (
     health,
     admin,
     notifications,
+    copilot,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -77,3 +78,4 @@ app.include_router(support.router)
 app.include_router(bridge.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
+app.include_router(copilot.router)

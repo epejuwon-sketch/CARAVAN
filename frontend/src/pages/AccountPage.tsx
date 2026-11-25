@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { User, Building2, ShieldCheck, CheckCircle2, Lock } from "lucide-react";
+import { User, Building2, ShieldCheck, CheckCircle2, Lock, Sparkles, TrendingUp, DollarSign } from "lucide-react";
 import { Organization } from "../types";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -10,7 +10,7 @@ interface AccountPageProps {
 
 export const AccountPage: React.FC<AccountPageProps> = () => {
   const { user } = useAuth();
-  const [org, setOrg] = useState<Organization | null>(null);
+  const [org, setOrg] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [country, setCountry] = useState("Nigeria");
@@ -23,6 +23,13 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
   const [femaleLed, setFemaleLed] = useState(false);
   const [youthLed, setYouthLed] = useState(true);
   const [goals, setGoals] = useState("");
+  const [productsServices, setProductsServices] = useState("");
+  const [targetCustomers, setTargetCustomers] = useState("");
+  const [businessModel, setBusinessModel] = useState("B2B");
+  const [growthObjectives, setGrowthObjectives] = useState("");
+  const [intendedUseOfFunds, setIntendedUseOfFunds] = useState("");
+  const [readinessScore, setReadinessScore] = useState<number>(0);
+  const [readinessLevel, setReadinessLevel] = useState<string>("EMERGING");
   const [msg, setMsg] = useState("");
 
   async function loadOrg() {
@@ -41,6 +48,13 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
       setFemaleLed(Boolean(res.female_led));
       setYouthLed(res.youth_led ?? true);
       setGoals(res.funding_goals || "");
+      setProductsServices(res.products_services || "");
+      setTargetCustomers(res.target_customers || "");
+      setBusinessModel(res.business_model || "B2B");
+      setGrowthObjectives(res.growth_objectives || "");
+      setIntendedUseOfFunds(res.intended_use_of_funds || "");
+      setReadinessScore(res.readiness_score || 0);
+      setReadinessLevel(res.readiness_level || "EMERGING");
     } catch {
       // ignore
     } finally {
@@ -56,7 +70,7 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
     e.preventDefault();
     setMsg("");
     try {
-      await apiFetch("/api/v1/account/organization", {
+      const updated = await apiFetch<any>("/api/v1/account/organization", {
         method: "PUT",
         body: JSON.stringify({
           name,
@@ -70,9 +84,16 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
           female_led: femaleLed,
           youth_led: youthLed,
           funding_goals: goals,
+          products_services: productsServices,
+          target_customers: targetCustomers,
+          business_model: businessModel,
+          growth_objectives: growthObjectives,
+          intended_use_of_funds: intendedUseOfFunds,
         }),
       });
-      setMsg("Organization profile updated successfully.");
+      setReadinessScore(updated.readiness_score || 0);
+      setReadinessLevel(updated.readiness_level || "EMERGING");
+      setMsg("Organization profile & AI readiness updated successfully.");
       setTimeout(() => setMsg(""), 4000);
     } catch (err: any) {
       setMsg(err.message);
@@ -80,53 +101,98 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
   }
 
   return (
-    <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 24, maxWidth: 840 }}>
+    <div className="container" style={{ paddingTop: 32, paddingBottom: 60, display: "flex", flexDirection: "column", gap: 24, maxWidth: 920 }}>
       <div>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: "#FFFFFF" }}>
-          Organization Profile &amp; Venture Settings
+          Organization Profile &amp; Business Intelligence
         </h1>
         <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-          Your profile parameters power CARAVAN's automated eligibility matching engine and application workflows.
+          Your profile parameters power CARAVAN's AI Copilot, automated eligibility matching, and application underwriting.
         </p>
       </div>
 
-      {msg && <div className="pill pill-emerald" style={{ padding: "8px 14px" }}>{msg}</div>}
+      {msg && <div className="pill pill-gold" style={{ padding: "8px 14px", alignSelf: "flex-start" }}>{msg}</div>}
 
-      {/* Account Identity Card */}
-      {user && (
-        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
-          <div className="row" style={{ gap: 14 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: "var(--radius-full)",
-                backgroundColor: "var(--accent-gold)",
-                color: "#050505",
-                fontWeight: 800,
-                fontSize: 16,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {user.full_name.slice(0, 2).toUpperCase()}
+      {/* Account Identity & Live Readiness Score Banner */}
+      <div className="grid-2" style={{ gap: 16 }}>
+        {user && (
+          <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+            <div className="row" style={{ gap: 14 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "#161616",
+                  border: "1.5px solid var(--accent-gold)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  color: "var(--accent-gold-bright)",
+                  fontSize: 16,
+                }}
+              >
+                {user.full_name ? user.full_name[0] : "U"}
+              </div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#FFFFFF" }}>{user.full_name}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{user.email}</div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{user.full_name}</div>
-              <div className="muted mono" style={{ fontSize: 12 }}>{user.email}</div>
+            <span className="pill pill-gold">{user.role}</span>
+          </div>
+        )}
+
+        {/* AI Readiness Score Gauge */}
+        <div
+          className="card card-gold"
+          style={{
+            backgroundColor: "var(--bg-secondary)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "18px 24px",
+          }}
+        >
+          <div>
+            <div className="row" style={{ gap: 6, fontSize: 12, fontWeight: 700, color: "var(--accent-gold-bright)" }}>
+              <Sparkles size={14} /> CARAVAN Funding Readiness
+            </div>
+            <div className="mono gold-text" style={{ fontSize: 28, fontWeight: 800, marginTop: 4 }}>
+              {readinessScore} <span style={{ fontSize: 14, color: "var(--text-muted)" }}>/ 100</span>
+            </div>
+            <div className="muted" style={{ fontSize: 11, textTransform: "capitalize" }}>
+              Status: {readinessLevel.replace(/_/g, " ").toLowerCase()}
             </div>
           </div>
-          <span className="pill pill-gold">{user.role}</span>
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              backgroundColor: "rgba(198, 157, 73, 0.15)",
+              border: "2px solid #C69D49",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <ShieldCheck size={26} color="#C69D49" />
+          </div>
         </div>
-      )}
+      </div>
 
       {loading ? (
         <div className="card muted" style={{ textAlign: "center", padding: 40 }}>
           Loading organization details...
         </div>
       ) : (
-        <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10 }}>
+            1. Corporate Governance &amp; Registration
+          </h2>
+
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <label className="form-label">Organization Legal / Trade Name *</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
@@ -160,7 +226,8 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
                 <option value="AgriTech">AgriTech &amp; Food Processing</option>
                 <option value="HealthTech">HealthTech &amp; Life Sciences</option>
                 <option value="CleanTech">CleanTech &amp; Renewable Energy</option>
-                <option value="Manufacturing">Light Manufacturing</option>
+                <option value="Manufacturing">Light Manufacturing &amp; Industrial</option>
+                <option value="Commerce">Commerce, Retail &amp; FMCG</option>
               </select>
             </div>
 
@@ -241,19 +308,88 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
             </label>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label className="form-label">Primary Funding Goals &amp; Capital Target</label>
-            <textarea
-              className="input"
-              rows={3}
-              value={goals}
-              onChange={(e) => setGoals(e.target.value)}
-              placeholder="e.g. Seeking $100,000 non-dilutive grant for production capacity expansion and commercial licensing."
-            />
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10, marginTop: 10 }}>
+            2. Strategic Intelligence &amp; Proposition
+          </h2>
+
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Products &amp; Core Services Offering</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={productsServices}
+                onChange={(e) => setProductsServices(e.target.value)}
+                placeholder="e.g. Solar-powered micro cold storage units and logistics tracking software for fresh produce."
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Target Customer Segments &amp; Market</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={targetCustomers}
+                onChange={(e) => setTargetCustomers(e.target.value)}
+                placeholder="e.g. Agricultural cooperatives, tomato farming clusters in Kano/Kaduna, and urban supermarket chains."
+              />
+            </div>
+          </div>
+
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Business / Monetization Model</label>
+              <select className="input" value={businessModel} onChange={(e) => setBusinessModel(e.target.value)}>
+                <option value="B2B">B2B (Enterprise &amp; Commercial)</option>
+                <option value="B2C">B2C (Consumer Retail)</option>
+                <option value="B2B2C">B2B2C (Partner Channel)</option>
+                <option value="MARKETPLACE">Two-Sided Marketplace</option>
+                <option value="SAAS">SaaS &amp; Subscription Software</option>
+                <option value="HARDWARE_SERVICE">Hardware-as-a-Service / Lease</option>
+              </select>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">12-Month Growth Objectives</label>
+              <input
+                className="input"
+                value={growthObjectives}
+                onChange={(e) => setGrowthObjectives(e.target.value)}
+                placeholder="e.g. Deploy 50 new cold rooms and reach ₦50M ARR."
+              />
+            </div>
+          </div>
+
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF", borderBottom: "1px solid var(--border-subtle)", paddingBottom: 10, marginTop: 10 }}>
+            3. Capital Strategy &amp; Funding Allocation
+          </h2>
+
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Primary Funding Goals</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={goals}
+                onChange={(e) => setGoals(e.target.value)}
+                placeholder="e.g. Seeking $150,000 non-dilutive grant or low-interest concessionary DFI facility."
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Intended Granular Use of Funds</label>
+              <textarea
+                className="input"
+                rows={3}
+                value={intendedUseOfFunds}
+                onChange={(e) => setIntendedUseOfFunds(e.target.value)}
+                placeholder="e.g. 60% machinery procurement, 25% operational scale, 15% governance and regulatory compliance."
+              />
+            </div>
           </div>
 
           <button type="submit" className="btn" style={{ alignSelf: "flex-start", marginTop: 8 }}>
-            Save Venture Profile
+            Save Venture Profile &amp; Recalculate Readiness
           </button>
         </form>
       )}
@@ -265,7 +401,7 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
             Data Privacy &amp; Statutory Portability (NDPA 2023 &amp; GDPR)
           </h2>
           <p className="muted" style={{ fontSize: 13 }}>
-            You have the right to export your complete venture dossiers and request cryptographic deletion of personal data.
+            You have the statutory right to export your complete venture dossiers and request cryptographic deletion of personal data.
           </p>
         </div>
 
@@ -319,4 +455,3 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
     </div>
   );
 };
-
