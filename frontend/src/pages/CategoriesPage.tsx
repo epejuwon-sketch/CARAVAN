@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Briefcase } from "lucide-react";
 
 interface CategoriesPageProps {
   onNavigate: (route: string) => void;
@@ -25,27 +25,37 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({ onNavigate }) =>
   ];
 
   return (
-    <div className="container" style={{ paddingTop: 40, display: "flex", flexDirection: "column", gap: 40 }}>
-      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: 12 }}>
-        <h1 style={{ fontSize: 36, fontWeight: 800 }}>15 Institutional Funding Categories</h1>
-        <p className="muted" style={{ fontSize: 15, maxWidth: 640, margin: "0 auto" }}>
+    <div className="container" style={{ paddingTop: 40, display: "flex", flexDirection: "column", gap: 36 }}>
+      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: 10 }}>
+        <span className="pill pill-gold" style={{ alignSelf: "center" }}>Comprehensive Institutional Stack</span>
+        <h1 style={{ fontSize: 34, fontWeight: 800, color: "#FFFFFF" }}>15 Institutional Funding Categories</h1>
+        <p className="muted" style={{ fontSize: 14, maxWidth: 640, margin: "0 auto", lineHeight: 1.6 }}>
           CARAVAN catalogs the entire capital stack from early proof-of-concept grants to multinational development finance facilities.
         </p>
       </div>
 
-      <div className="grid-3">
+      <div className="grid-3" style={{ gap: 16 }}>
         {categories.map((c) => (
-          <div key={c.id} className="card card-interactive" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div
+            key={c.id}
+            className="card"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              backgroundColor: "var(--bg-card)",
+            }}
+          >
             <div className="row-between">
-              <span className="pill pill-cyan">{c.id}</span>
+              <span className="pill pill-gold">{c.id}</span>
               <span className="muted mono" style={{ fontSize: 11 }}>{c.scope}</span>
             </div>
-            <strong style={{ fontSize: 16 }}>{c.title}</strong>
+            <strong style={{ fontSize: 15, color: "#FFFFFF" }}>{c.title}</strong>
             <p className="muted" style={{ fontSize: 13, lineHeight: 1.6, flex: 1 }}>{c.desc}</p>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              style={{ marginTop: 8 }}
+              style={{ marginTop: 6 }}
               onClick={() => onNavigate("discover")}
             >
               Browse Category <ArrowRight size={12} />

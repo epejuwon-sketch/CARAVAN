@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { User, Building2, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { User, Building2, ShieldCheck, CheckCircle2, Lock } from "lucide-react";
 import { Organization } from "../types";
 import { apiFetch } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 interface AccountPageProps {
   onNavigate: (route: string) => void;
 }
 
 export const AccountPage: React.FC<AccountPageProps> = () => {
+  const { user } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -56,6 +58,7 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
         }),
       });
       setMsg("Organization profile updated successfully.");
+      setTimeout(() => setMsg(""), 4000);
     } catch (err: any) {
       setMsg(err.message);
     }
@@ -64,28 +67,59 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
   return (
     <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 24, maxWidth: 840 }}>
       <div>
-        <h1 style={{ fontSize: 28, fontWeight: 800 }}>Organization Profile &amp; Venture Settings</h1>
-        <p className="muted" style={{ fontSize: 13 }}>
-          Your profile parameters power CARAVAN's automated eligibility matching engine.
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: "#FFFFFF" }}>
+          Organization Profile &amp; Venture Settings
+        </h1>
+        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+          Your profile parameters power CARAVAN's automated eligibility matching engine and application workflows.
         </p>
       </div>
 
-      {msg && <div className="pill pill-cyan">{msg}</div>}
+      {msg && <div className="pill pill-emerald" style={{ padding: "8px 14px" }}>{msg}</div>}
+
+      {/* Account Identity Card */}
+      {user && (
+        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
+          <div className="row" style={{ gap: 14 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "var(--radius-full)",
+                backgroundColor: "var(--accent-gold)",
+                color: "#050505",
+                fontWeight: 800,
+                fontSize: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {user.full_name.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{user.full_name}</div>
+              <div className="muted mono" style={{ fontSize: 12 }}>{user.email}</div>
+            </div>
+          </div>
+          <span className="pill pill-gold">{user.role}</span>
+        </div>
+      )}
 
       {loading ? (
         <div className="card muted" style={{ textAlign: "center", padding: 40 }}>
           Loading organization details...
         </div>
       ) : (
-        <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <form onSubmit={handleSave} className="card" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 12, fontWeight: 600 }}>Organization Legal / Trade Name</label>
+            <label className="form-label">Organization Legal / Trade Name *</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
 
           <div className="grid-2" style={{ gap: 16 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Country of Incorporation</label>
+              <label className="form-label">Country of Incorporation</label>
               <select className="input" value={country} onChange={(e) => setCountry(e.target.value)}>
                 <option value="Nigeria">Nigeria</option>
                 <option value="Ghana">Ghana</option>
@@ -97,14 +131,14 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>State / Regional Location</label>
+              <label className="form-label">State / Regional Location</label>
               <input className="input" value={stateLocation} onChange={(e) => setStateLocation(e.target.value)} />
             </div>
           </div>
 
           <div className="grid-2" style={{ gap: 16 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Industry Sector</label>
+              <label className="form-label">Industry Sector</label>
               <select className="input" value={sector} onChange={(e) => setSector(e.target.value)}>
                 <option value="Technology">Technology &amp; Software</option>
                 <option value="FinTech">FinTech &amp; Financial Services</option>
@@ -116,7 +150,7 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 12, fontWeight: 600 }}>Venture Operating Stage</label>
+              <label className="form-label">Venture Operating Stage</label>
               <select className="input" value={stage} onChange={(e) => setStage(e.target.value)}>
                 <option value="IDEA">Idea / Concept</option>
                 <option value="SEED">Pre-Seed / Seed</option>
@@ -127,13 +161,13 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 12, fontWeight: 600 }}>Primary Funding Goals &amp; Capital Target</label>
+            <label className="form-label">Primary Funding Goals &amp; Capital Target</label>
             <textarea
               className="input"
               rows={3}
               value={goals}
               onChange={(e) => setGoals(e.target.value)}
-              placeholder="e.g. Seeking $50,000 non-dilutive grant for CAC expansion and commercial pilot."
+              placeholder="e.g. Seeking $100,000 non-dilutive grant for production capacity expansion and commercial licensing."
             />
           </div>
 

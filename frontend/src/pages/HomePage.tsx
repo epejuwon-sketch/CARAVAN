@@ -1,147 +1,312 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
-  Compass,
   ShieldCheck,
-  Sparkles,
+  Zap,
+  BarChart3,
   ArrowRight,
+  Compass,
   CheckCircle2,
   Lock,
   Globe,
   Building2,
-  TrendingUp,
+  FileCheck,
 } from "lucide-react";
+import { CaravanSymbol } from "../components/brand/CaravanLogo";
+import { apiFetch } from "../lib/api";
 
 interface HomePageProps {
   onNavigate: (route: string) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
+  const [oppCount, setOppCount] = useState<number>(12);
+
+  useEffect(() => {
+    apiFetch<any>("/api/v1/opportunities?limit=1")
+      .then((res) => {
+        if (res?.total) setOppCount(res.total);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 80, paddingTop: 40 }}>
-      {/* Hero Section */}
-      <section className="container" style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 24 }}>
-        <div className="pill pill-cyan">
-          <ShieldCheck size={13} /> Official Provenance Verified Funding Intelligence
-        </div>
-        <h1
-          className="hero-heading"
+    <div style={{ display: "flex", flexDirection: "column", gap: 64, paddingTop: 40 }}>
+      {/* 1. HERO SECTION (Matching Attached Reference Image Screen 1) */}
+      <section className="container">
+        <div
+          className="row-between"
           style={{
-            fontSize: "clamp(36px, 6vw, 64px)",
-            fontWeight: 800,
-            letterSpacing: "-0.03em",
-            lineHeight: 1.1,
-            maxWidth: 960,
-            color: "#FFFFFF",
-            background: "linear-gradient(180deg, #FFFFFF 0%, #94A3B8 100%)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            WebkitTextFillColor: "transparent",
+            flexWrap: "wrap",
+            gap: 48,
+            alignItems: "center",
+            padding: "32px 0 20px",
           }}
         >
-          Capital Intelligence for High-Growth Ventures &amp; Global Scale
-        </h1>
-        <p className="muted" style={{ fontSize: "clamp(15px, 2vw, 18px)", maxWidth: 680, lineHeight: 1.6 }}>
-          CARAVAN bridges high-conviction African enterprises with global non-dilutive grants, concessionary debt, venture capital, and multilateral development facilities. Zero fabricated opportunities.
-        </p>
-        <div className="row" style={{ gap: 12, flexWrap: "wrap", justifyContent: "center", marginTop: 12 }}>
-          <button type="button" className="btn" style={{ padding: "14px 28px", fontSize: 14 }} onClick={() => onNavigate("register")}>
-            Explore Funding Opportunities <ArrowRight size={16} />
-          </button>
-          <button type="button" className="btn btn-secondary" style={{ padding: "14px 28px", fontSize: 14 }} onClick={() => onNavigate("how-it-works")}>
-            How It Works
-          </button>
+          {/* Left Column: Heading, Subtitle & CTAs */}
+          <div style={{ flex: "1 1 500px", maxWidth: 620, display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span
+                style={{
+                  color: "var(--accent-gold-bright)",
+                  fontSize: 20,
+                  fontWeight: 800,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                }}
+              >
+                CARAVAN
+              </span>
+              <h1
+                style={{
+                  fontSize: "clamp(34px, 5.2vw, 54px)",
+                  fontWeight: 800,
+                  lineHeight: 1.15,
+                  letterSpacing: "-0.03em",
+                  color: "#FFFFFF",
+                }}
+              >
+                Funding. Opportunities. Growth.
+              </h1>
+            </div>
+
+            <p
+              className="muted"
+              style={{
+                fontSize: "clamp(15px, 1.8vw, 18px)",
+                lineHeight: 1.6,
+                color: "var(--text-secondary)",
+              }}
+            >
+              Discover trusted funding opportunities for your business, project or enterprise. Curated institutional grants, concessionary debt, venture capital, and multilateral development facilities. Zero fabricated opportunities.
+            </p>
+
+            <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-lg"
+                onClick={() => onNavigate("register")}
+              >
+                Get Started <ArrowRight size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-lg"
+                onClick={() => onNavigate("how-it-works")}
+              >
+                Learn More
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Official Large CARAVAN Symbol */}
+          <div
+            style={{
+              flex: "1 1 320px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "20px 0",
+            }}
+          >
+            <div
+              style={{
+                width: 280,
+                height: 240,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-lg)",
+                boxShadow: "var(--shadow-md)",
+              }}
+            >
+              <CaravanSymbol size={180} />
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* Metrics Banner */}
+      {/* 2. THREE PILLARS (Matching Reference Image Screen 1 Bottom Cards) */}
       <section className="container">
-        <div className="grid-4" style={{
-          backgroundColor: "var(--bg-secondary)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: "var(--radius-lg)",
-          padding: "32px 24px",
-        }}>
+        <div className="grid-3" style={{ gap: 20 }}>
+          {/* Card 1: Trusted & Secure */}
+          <div
+            className="card card-gold"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              padding: "28px 24px",
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-gold)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--accent-gold-bright)",
+              }}
+            >
+              <ShieldCheck size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Trusted &amp; Secure</h3>
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                Every institutional program is verified with cryptographic provenance records, official registry filings, and direct statutory application portal endpoints.
+              </p>
+            </div>
+          </div>
+
+          {/* Card 2: Fast Application */}
+          <div
+            className="card card-gold"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              padding: "28px 24px",
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-gold)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--accent-gold-bright)",
+              }}
+            >
+              <Zap size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Fast Application</h3>
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                Structured multi-step application preparation, automated eligibility scoring, checklists, and document verification reduce application cycle time by 80%.
+              </p>
+            </div>
+          </div>
+
+          {/* Card 3: Real Opportunities */}
+          <div
+            className="card card-gold"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              padding: "28px 24px",
+            }}
+          >
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-gold)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--accent-gold-bright)",
+              }}
+            >
+              <BarChart3 size={22} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Real Opportunities</h3>
+              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                Active capital allocations across 15 funding categories—from Bank of Industry facilities and international DFIs to venture capital and competitive innovation funds.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. VERIFIED TELEMETRY BANNER */}
+      <section className="container">
+        <div
+          className="grid-4"
+          style={{
+            backgroundColor: "var(--bg-secondary)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-md)",
+            padding: "28px 24px",
+          }}
+        >
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-cyan)" }}>12 Programs</div>
+            <div className="mono" style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-gold-bright)" }}>
+              {oppCount} Programs
+            </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Institutional Pipeline</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-indigo)" }}>15 Categories</div>
+            <div className="mono" style={{ fontSize: 32, fontWeight: 800, color: "var(--text-primary)" }}>
+              15 Categories
+            </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Grants, Debt, VC, DFIs &amp; Awards</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-emerald)" }}>100% Provenance</div>
+            <div className="mono" style={{ fontSize: 32, fontWeight: 800, color: "var(--status-success-text)" }}>
+              100% Provenance
+            </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Official Registry Sources</div>
           </div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-amber)" }}>Abuja &amp; London</div>
+            <div className="mono" style={{ fontSize: 32, fontWeight: 800, color: "var(--text-primary)" }}>
+              Abuja &amp; London
+            </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Regional &amp; International Hubs</div>
           </div>
         </div>
       </section>
 
-      {/* Value Pillars */}
-      <section className="container" style={{ display: "flex", flexDirection: "column", gap: 36 }}>
-        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: 10 }}>
-          <h2 style={{ fontSize: 28, fontWeight: 800 }}>Engineered for Institutional Rigor</h2>
-          <p className="muted" style={{ fontSize: 14, maxWidth: 540, margin: "0 auto" }}>
-            CARAVAN replaces unstructured search with verified intelligence pipelines and governed preparation workflows.
+      {/* 4. INSTITUTIONAL CALL TO ACTION */}
+      <section className="container" style={{ paddingBottom: 20 }}>
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            textAlign: "center",
+            gap: 18,
+            padding: "48px 24px",
+            backgroundColor: "var(--bg-secondary)",
+            border: "1px solid var(--border-gold)",
+          }}
+        >
+          <span className="pill pill-gold">Ready to Access Capital</span>
+          <h2 style={{ fontSize: 26, fontWeight: 800, maxWidth: 560 }}>
+            Connect Your Venture with Verified Capital Pipelines
+          </h2>
+          <p className="muted" style={{ fontSize: 14, maxWidth: 480, lineHeight: 1.6 }}>
+            Sign up for a free organization profile or explore the verified funding marketplace to begin matching with institutional programs.
           </p>
-        </div>
-
-        <div className="grid-3">
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, background: "rgba(56, 189, 248, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-cyan)" }}>
-              <Compass size={20} />
-            </div>
-            <h3 style={{ fontSize: 16, fontWeight: 700 }}>Verified Capital Catalog</h3>
-            <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-              Direct programmatic links to official grantmaker, commercial bank, venture fund, and DFI application portals with cryptographic provenance hashes.
-            </p>
+          <div className="row" style={{ gap: 12, marginTop: 6 }}>
+            <button
+              type="button"
+              className="btn btn-lg"
+              onClick={() => onNavigate("register")}
+            >
+              Get Started Now
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-lg"
+              onClick={() => onNavigate("discover")}
+            >
+              Browse Opportunities
+            </button>
           </div>
-
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, background: "rgba(129, 140, 248, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-indigo)" }}>
-              <Sparkles size={20} />
-            </div>
-            <h3 style={{ fontSize: 16, fontWeight: 700 }}>Smart Eligibility Matching</h3>
-            <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-              Rule-governed matching based on CAC corporate structure, geography, stage, sector, and revenue. Clear scoring breakdowns ensure zero wasted effort.
-            </p>
-          </div>
-
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 8, background: "rgba(52, 211, 153, 0.1)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent-emerald)" }}>
-              <ShieldCheck size={20} />
-            </div>
-            <h3 style={{ fontSize: 16, fontWeight: 700 }}>Application Workspace</h3>
-            <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-              Track drafting progress, organize cap tables and pitch decks, set automatic deadline countdown reminders, and maintain institutional audit logs.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Call to Action */}
-      <section className="container">
-        <div style={{
-          backgroundColor: "var(--bg-secondary)",
-          border: "1px solid var(--border-hover)",
-          borderRadius: "var(--radius-lg)",
-          padding: "60px 32px",
-          textAlign: "center",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 20,
-        }}>
-          <h2 style={{ fontSize: 32, fontWeight: 800 }}>Ready to Accelerate Your Venture Capital Journey?</h2>
-          <p className="muted" style={{ fontSize: 14, maxWidth: 560, lineHeight: 1.6 }}>
-            Join forward-thinking African founders and institutional leaders securing non-dilutive grants, expansion loans, and equity funding on CARAVAN.
-          </p>
-          <button type="button" className="btn" style={{ padding: "14px 32px", fontSize: 14 }} onClick={() => onNavigate("register")}>
-            Create Free Account <ArrowRight size={16} />
-          </button>
         </div>
       </section>
     </div>

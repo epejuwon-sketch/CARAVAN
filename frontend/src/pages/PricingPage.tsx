@@ -20,7 +20,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "Open verified funding directory",
         "3 eligibility evaluations / month",
         "1 active application workspace",
-        "Weekly email intelligence digests",
+        "Weekly intelligence digests",
       ],
       cta: "Start Free",
       highlight: false,
@@ -53,140 +53,111 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
       features: [
         "All Emerging Founder features",
         "15 active application pipelines",
-        "AI-assisted proposal outline drafting",
+        "Proposal outline drafting support",
         "Investor & grantmaker provenance data",
-        "Team workspace (up to 3 collaborator seats)",
+        "Team workspace (up to 3 seats)",
         "Priority support response",
       ],
       cta: "Select Growth",
       highlight: true,
     },
     {
-      id: "PRO",
-      name: "Institutional Scale",
-      price_usd: "$99",
-      price_ngn: "₦150,000",
-      period: "per month",
-      desc: "For mature ventures managing multimillion-dollar funding operations.",
-      features: [
-        "All Scaling Venture features",
-        "Unlimited application pipelines",
-        "Multi-organization portfolio management",
-        "Concessionary debt & DFI facility tracking",
-        "Dedicated onboarding specialist",
-        "Direct Slack / WhatsApp support bridge",
-      ],
-      cta: "Select Pro",
-      highlight: false,
-    },
-    {
       id: "INSTITUTIONAL",
-      name: "Venture Studio & Fund",
-      price_usd: "$249",
-      price_ngn: "₦380,000",
+      name: "Institutional Syndicate",
+      price_usd: "$149",
+      price_ngn: "₦225,000",
       period: "per month",
-      desc: "For venture builders, incubators, and studios scaling multiple portfolio ventures.",
+      desc: "For incubators, accelerators, universities, and multi-venture studio portfolios.",
       features: [
-        "All Institutional Scale features",
-        "Unlimited portfolio company workspaces",
-        "Custom intake & grant syndication feeds",
-        "Automated LP & grantmaker compliance reporting",
-        "API access for dealflow integration",
-        "Dedicated relationship director",
+        "Unlimited application pipelines",
+        "Full multi-venture portfolio dashboard",
+        "Dedicated account manager",
+        "Custom API data access",
+        "Bespoke intelligence briefings",
+        "10 collaborator seats",
       ],
-      cta: "Select Institutional",
-      highlight: false,
-    },
-    {
-      id: "CUSTOM",
-      name: "Sovereign & DFI Enterprise",
-      price_usd: "Custom",
-      price_ngn: "Custom",
-      period: "annual engagement",
-      desc: "For governments, DFIs, and multinational philanthropic programs.",
-      features: [
-        "Bespoke national or regional funding directories",
-        "Sovereign data residency & on-premise deployment",
-        "Multi-stakeholder review committee portals",
-        "SLA guarantee & custom audit logging",
-      ],
-      cta: "Contact Enterprise",
+      cta: "Contact Institutional",
       highlight: false,
     },
   ];
 
   return (
-    <div className="container" style={{ paddingTop: 40, display: "flex", flexDirection: "column", gap: 40 }}>
-      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
-        <h1 style={{ fontSize: 36, fontWeight: 800 }}>Predictable, Transparent Pricing</h1>
-        <p className="muted" style={{ fontSize: 15, maxWidth: 640 }}>
-          Accelerate your funding search with institutional precision. Cancel or switch plans anytime.
+    <div className="container" style={{ paddingTop: 40, display: "flex", flexDirection: "column", gap: 36 }}>
+      <div style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: 12 }}>
+        <span className="pill pill-gold" style={{ alignSelf: "center" }}>Transparent Pricing</span>
+        <h1 style={{ fontSize: 34, fontWeight: 800, color: "#FFFFFF" }}>
+          Predictable Capital Intelligence Tiers
+        </h1>
+        <p className="muted" style={{ fontSize: 14, maxWidth: 580, margin: "0 auto", lineHeight: 1.6 }}>
+          Zero commissions on awarded grants or investments. Fixed, predictable monthly subscriptions for African ventures and global scale.
         </p>
-        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+
+        {/* Currency Switcher */}
+        <div className="row" style={{ alignSelf: "center", gap: 6, backgroundColor: "var(--bg-secondary)", padding: 4, borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)" }}>
           <button
             type="button"
-            className={`btn btn-sm ${currency === "USD" ? "" : "btn-secondary"}`}
+            className={`btn btn-sm ${currency === "USD" ? "btn" : "btn-secondary"}`}
             onClick={() => setCurrency("USD")}
           >
             USD ($)
           </button>
           <button
             type="button"
-            className={`btn btn-sm ${currency === "NGN" ? "" : "btn-secondary"}`}
+            className={`btn btn-sm ${currency === "NGN" ? "btn" : "btn-secondary"}`}
             onClick={() => setCurrency("NGN")}
           >
-            Nigerian Naira (₦)
+            NGN (₦)
           </button>
         </div>
       </div>
 
-      <div className="grid-3" style={{ gap: 20 }}>
+      <div className="grid-4" style={{ gap: 16 }}>
         {plans.map((p) => (
           <div
             key={p.id}
-            className="card"
+            className={`card ${p.highlight ? "card-gold" : ""}`}
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 16,
-              border: p.highlight ? "1px solid var(--accent-cyan)" : "1px solid var(--border-subtle)",
-              backgroundColor: p.highlight ? "rgba(56, 189, 248, 0.03)" : "var(--bg-card)",
+              justifyContent: "space-between",
+              gap: 20,
+              padding: "28px 24px",
+              backgroundColor: "var(--bg-card)",
               position: "relative",
             }}
           >
-            {p.highlight && (
-              <span className="pill pill-cyan" style={{ position: "absolute", top: -10, right: 20 }}>
-                Most Popular
-              </span>
-            )}
-            <div>
-              <strong style={{ fontSize: 18 }}>{p.name}</strong>
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{p.desc}</div>
-            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="row-between">
+                <strong style={{ fontSize: 16, color: "#FFFFFF" }}>{p.name}</strong>
+                {p.highlight && <span className="pill pill-gold">Popular</span>}
+              </div>
 
-            <div className="row" style={{ gap: 6, alignItems: "baseline" }}>
-              <span style={{ fontSize: 32, fontWeight: 800, color: "var(--text-primary)" }}>
+              <div className="mono gold-text" style={{ fontSize: 28, fontWeight: 800 }}>
                 {currency === "USD" ? p.price_usd : p.price_ngn}
-              </span>
-              <span className="muted" style={{ fontSize: 12 }}>/ {p.period}</span>
-            </div>
+                <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 4 }}>/{p.period}</span>
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-              {p.features.map((f, i) => (
-                <div key={i} className="row" style={{ gap: 8, fontSize: 12 }}>
-                  <CheckCircle2 size={14} color="var(--accent-emerald)" style={{ flexShrink: 0 }} />
-                  <span>{f}</span>
-                </div>
-              ))}
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>{p.desc}</p>
+
+              <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 14 }}>
+                <ul style={{ paddingLeft: 0, listStyle: "none", fontSize: 12, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {p.features.map((f, i) => (
+                    <li key={i} className="row" style={{ gap: 8 }}>
+                      <CheckCircle2 size={13} color="var(--accent-gold-bright)" style={{ flexShrink: 0 }} />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
             <button
               type="button"
-              className={`btn ${p.highlight ? "" : "btn-secondary"}`}
-              style={{ width: "100%", marginTop: 8 }}
+              className={p.highlight ? "btn" : "btn btn-secondary"}
+              style={{ width: "100%", justifyContent: "center" }}
               onClick={() => onNavigate("register")}
             >
-              {p.cta} <ArrowRight size={14} />
+              {p.cta} <ArrowRight size={13} />
             </button>
           </div>
         ))}

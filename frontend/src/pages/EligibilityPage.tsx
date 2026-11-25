@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, RefreshCw } from "lucide-react";
+import { Sparkles, CheckCircle2, AlertCircle, ArrowRight, RefreshCw, Award } from "lucide-react";
 import { EligibilityAssessment } from "../types";
 import { apiFetch } from "../lib/api";
-import { StatusBadge } from "../components/ui/DesignSystem";
+import { StatusBadge, EmptyState } from "../components/ui/DesignSystem";
 
 interface EligibilityPageProps {
   onNavigate: (route: string) => void;
@@ -46,82 +46,111 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
     <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 24 }}>
       <div className="row-between" style={{ flexWrap: "wrap", gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 800 }}>Smart Eligibility Matching Scorecard</h1>
-          <p className="muted" style={{ fontSize: 13 }}>
-            Evaluated against your CAC corporate structure, geography, sector, operating stage, and revenue.
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#FFFFFF" }}>
+            Eligibility Matching Scorecard
+          </h1>
+          <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Evaluated against your corporate structure, geography, sector, operating stage, and revenue.
           </p>
         </div>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={loadRecommendations} disabled={loading}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={loadRecommendations}
+          disabled={loading}
+        >
           <RefreshCw size={13} /> Re-evaluate Scorecard
         </button>
       </div>
 
-      {msg && <div className="pill pill-rose">{msg}</div>}
+      {msg && <div className="pill pill-rose" style={{ padding: "8px 14px" }}>{msg}</div>}
 
       {loading ? (
-        <div className="card muted" style={{ textAlign: "center", padding: 40 }}>
-          Computing eligibility match scores against verified institutional programs...
+        <div className="card muted" style={{ textAlign: "center", padding: 48 }}>
+          Evaluating institutional criteria against your organization profile...
         </div>
       ) : recommendations.length === 0 ? (
-        <div className="card muted" style={{ textAlign: "center", padding: 40 }}>
-          No eligibility evaluations found. Update your organization profile or browse the marketplace.
-        </div>
+        <EmptyState
+          icon={<Award size={36} />}
+          title="No eligibility scorecards available"
+          description="Complete your Organization Profile to generate automated eligibility scores against institutional facilities."
+          actionLabel="Complete Profile"
+          onAction={() => onNavigate("account")}
+        />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {recommendations.map((rec) => (
-            <div
-              key={rec.assessment_id}
-              className="card"
-              style={{ display: "flex", flexDirection: "column", gap: 14 }}
-            >
-              <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
-                <div>
-                  <strong style={{ fontSize: 16 }}>{rec.opportunity_title}</strong>
-                  <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{rec.provider}</div>
-                </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {recommendations.map((rec) => {
+            const isStrong = rec.recommendation_level === "STRONG";
+            return (
+              <div
+                key={rec.assessment_id}
+                className={`card ${isStrong ? "card-gold" : ""}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 16,
+                  padding: "20px 24px",
+                  backgroundColor: "var(--bg-card)",
+                }}
+              >
+                <div className="row-between" style={{ flexWrap: "wrap", gap: 14 }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, color: "#FFFFFF" }}>
+                      {rec.opportunity_title}
+                    </h3>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{rec.provider}</div>
+                  </div>
 
-                <div className="row" style={{ gap: 10 }}>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: rec.match_score >= 80 ? "var(--accent-emerald)" : "var(--accent-cyan)" }}>
-                      {rec.match_score.toFixed(0)}% Match
+                  <div className="row" style={{ gap: 14 }}>
+                    <div style={{ textAlign: "right" }}>
+                      <span className="mono gold-text" style={{ fontSize: 20, fontWeight: 800 }}>
+                        {rec.match_score}/100
+                      </span>
+                      <div className="muted" style={{ fontSize: 11 }}>Match Score</div>
                     </div>
                     <StatusBadge status={rec.recommendation_level} />
                   </div>
+                </div>
+
+                {/* Criteria Breakdown */}
+                {rec.criteria_breakdown && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                      gap: 10,
+                      backgroundColor: "var(--bg-secondary)",
+                      padding: 14,
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border-subtle)",
+                    }}
+                  >
+                    {Object.entries(rec.criteria_breakdown).map(([key, item]) => (
+                      <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                        {item.matched ? (
+                          <CheckCircle2 size={14} color="var(--status-success-text)" />
+                        ) : (
+                          <AlertCircle size={14} color="var(--status-warning-text)" />
+                        )}
+                        <span style={{ textTransform: "capitalize", fontWeight: 600 }}>{key}:</span>
+                        <span className="muted">{item.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="row" style={{ justifyContent: "flex-end", gap: 10 }}>
                   <button
                     type="button"
                     className="btn btn-sm"
                     onClick={() => handleStartApp(rec.opportunity_id)}
                   >
-                    Apply Now <ArrowRight size={12} />
+                    Prepare Application <ArrowRight size={13} />
                   </button>
                 </div>
               </div>
-
-              {/* Criteria breakdown */}
-              <div className="grid-3" style={{ gap: 10 }}>
-                {Object.entries(rec.criteria_breakdown || {}).map(([key, val]: [string, any]) => (
-                  <div
-                    key={key}
-                    style={{
-                      padding: 10,
-                      borderRadius: "var(--radius-sm)",
-                      backgroundColor: "var(--bg-secondary)",
-                      border: "1px solid var(--border-subtle)",
-                      fontSize: 12,
-                    }}
-                  >
-                    <div className="row-between" style={{ textTransform: "capitalize", fontWeight: 600 }}>
-                      <span>{key.replace("_", " ")}</span>
-                      <span className="mono" style={{ color: val.score > 0 ? "var(--accent-emerald)" : "var(--accent-rose)" }}>
-                        +{val.score} pts
-                      </span>
-                    </div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{val.reason}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
