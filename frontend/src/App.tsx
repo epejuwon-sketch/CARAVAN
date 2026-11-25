@@ -29,6 +29,7 @@ import {
   User,
   ShieldCheck,
   Home,
+  Lock,
 } from "lucide-react";
 
 function MainContent() {
@@ -87,7 +88,24 @@ function MainContent() {
       <main style={{ flex: 1 }}>
         {currentRoute === "home" && <HomePage onNavigate={navigate} />}
         {currentRoute === "dashboard" && <DashboardPage onNavigate={navigate} />}
-        {currentRoute === "admin" && <AdminDashboardPage onNavigate={navigate} />}
+        {currentRoute === "admin" && (
+          user?.role === "ADMIN" ? (
+            <AdminDashboardPage onNavigate={navigate} />
+          ) : (
+            <div className="container" style={{ paddingTop: 64, paddingBottom: 64, display: "flex", justifyContent: "center" }}>
+              <div className="card" style={{ maxWidth: 540, width: "100%", textAlign: "center", padding: "48px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                <Lock size={44} style={{ color: "var(--accent-gold)" }} />
+                <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF" }}>Administrator Authorization Required</h2>
+                <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  Access to the CARAVAN Operations Portal is restricted to verified administrators under Sentinel RBAC controls.
+                </p>
+                <button type="button" className="btn btn-sm" onClick={() => navigate("home")}>
+                  Return to Platform
+                </button>
+              </div>
+            </div>
+          )
+        )}
         {currentRoute === "how-it-works" && <HowItWorksPage onNavigate={navigate} />}
         {currentRoute === "categories" && <CategoriesPage onNavigate={navigate} />}
         {currentRoute === "pricing" && <PricingPage onNavigate={navigate} />}

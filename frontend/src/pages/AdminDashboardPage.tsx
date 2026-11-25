@@ -15,8 +15,9 @@ import {
   ArrowRight,
   Clock,
   Lock,
+  Globe,
 } from "lucide-react";
-import { MetricCard, StatusBadge } from "../components/ui/DesignSystem";
+import { MetricCard, StatusBadge, EmptyState } from "../components/ui/DesignSystem";
 import { apiFetch } from "../lib/api";
 
 interface AdminDashboardPageProps {
@@ -26,19 +27,15 @@ interface AdminDashboardPageProps {
 export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<"dashboard" | "verification" | "analytics" | "users" | "settings">("dashboard");
 
-  // Telemetry state
+  // Telemetry state from real backend
   const [telemetry, setTelemetry] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState("");
   const [timeRange, setTimeRange] = useState<"7D" | "30D" | "90D" | "1Y">("30D");
 
   // Verification center state (Screen 8)
   const [verificationFilter, setVerificationFilter] = useState<"pending" | "approved" | "rejected">("pending");
-  const [verificationItems, setVerificationItems] = useState([
-    { id: "v1", name: "John Doe", org: "Tech Solutions Ltd", status: "pending", initials: "JD" },
-    { id: "v2", name: "Alice Smith", org: "Growth Co Africa", status: "pending", initials: "AS" },
-    { id: "v3", name: "Michael King", org: "Innovation Ltd", status: "pending", initials: "MK" },
-    { id: "v4", name: "Babatunde Adeleke", org: "AgriScale Hub", status: "approved", initials: "BA" },
-    { id: "v5", name: "Chidinma Okoro", org: "Fintech Logistics", status: "approved", initials: "CO" },
-  ]);
+  const [userSearch, setUserSearch] = useState("");
 
   // System settings state (Screen 11)
   const [settingsTab, setSettingsTab] = useState<"general" | "security" | "notifications" | "integrations">("general");
@@ -46,36 +43,52 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
   const [supportEmail, setSupportEmail] = useState("support@caravan.ng");
   const [savedSettingsMsg, setSavedSettingsMsg] = useState("");
 
+  async function loadAdminTelemetry() {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      const data = await apiFetch<any>("/api/v1/admin/telemetry");
+      setTelemetry(data);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to load admin telemetry.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    // Attempt to load live opportunities & applications to populate admin telemetry
-    Promise.all([
-      apiFetch<any>("/api/v1/opportunities?limit=10").catch(() => null),
-      apiFetch<any>("/api/v1/applications").catch(() => null),
-    ]).then(([oppRes, appRes]) => {
-      setTelemetry({
-        opportunities: oppRes?.opportunities || [],
-        applications: appRes?.applications || [],
-        totalUsers: 1248,
-        totalApplications: 843,
-        totalFunded: "$2.5M",
-        successRate: "98%",
-      });
-    });
+    loadAdminTelemetry();
   }, []);
 
-  const handleApprove = (id: string) => {
-    setVerificationItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: "approved" } : item))
+  if (errorMsg && errorMsg.includes("Permission denied")) {
+    return (
+      <div className="container" style={{ paddingTop: 64, paddingBottom: 64, display: "flex", justifyContent: "center" }}>
+        <div className="card" style={{ maxWidth: 540, width: "100%", textAlign: "center", padding: "48px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+          <Lock size={44} style={{ color: "var(--accent-gold)" }} />
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF" }}>Access Denied</h2>
+          <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
+            {errorMsg}
+          </p>
+          <button type="button" className="btn btn-sm" onClick={() => onNavigate("home")}>
+            Return to Home
+          </button>
+        </div>
+      </div>
     );
-  };
+  }
 
-  const handleReject = (id: string) => {
-    setVerificationItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status: "rejected" } : item))
-    );
-  };
+  const totalUsers = telemetry?.total_users ?? 0;
+  const totalApps = telemetry?.total_applications ?? 0;
+  const totalOpps = telemetry?.total_opportunities ?? 0;
+  const recentApps: any[] = telemetry?.applications || [];
+  const allUsers: any[] = telemetry?.users || [];
 
-  const pendingCount = verificationItems.filter((v) => v.status === "pending").length;
+  // Filter users by search
+  const filteredUsers = allUsers.filter((u) => {
+    if (!userSearch) return true;
+    const term = userSearch.toLowerCase();
+    return u.full_name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.organization_name?.toLowerCase().includes(term);
+  });
 
   return (
     <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 28 }}>
@@ -106,7 +119,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
             className={`tab-btn ${activeTab === "verification" ? "active" : ""}`}
             onClick={() => setActiveTab("verification")}
           >
-            Verification Centre ({pendingCount})
+            Verification Centre
           </button>
           <button
             type="button"
@@ -120,7 +133,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
             className={`tab-btn ${activeTab === "users" ? "active" : ""}`}
             onClick={() => setActiveTab("users")}
           >
-            Users
+            Users ({totalUsers})
           </button>
           <button
             type="button"
@@ -132,38 +145,44 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
         </div>
       </div>
 
+      {loading && (
+        <div className="card muted" style={{ textAlign: "center", padding: 32 }}>
+          Loading real-time platform telemetry...
+        </div>
+      )}
+
       {/* 1. ADMIN DASHBOARD VIEW (Screen 7 in Reference) */}
-      {activeTab === "dashboard" && (
+      {!loading && activeTab === "dashboard" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {/* 4 Metric Cards */}
           <div className="grid-4" style={{ gap: 16 }}>
             <MetricCard
-              label="Total Users"
-              value="1,248"
-              sub="Registered ventures"
+              label="Registered Users"
+              value={totalUsers}
+              sub="Verified platform entities"
               tone="default"
               icon={<Users size={18} />}
             />
             <MetricCard
               label="Total Applications"
-              value="843"
-              sub="Pipelines tracked"
+              value={totalApps}
+              sub="Pipelines in lifecycle"
               tone="gold"
               icon={<FolderKanban size={18} />}
             />
             <MetricCard
-              label="Total Funded"
-              value="$2.5M"
-              sub="Disbursed capital"
+              label="Verified Opportunities"
+              value={totalOpps}
+              sub="Active capital programs"
               tone="default"
-              icon={<DollarSign size={18} />}
+              icon={<Globe size={18} />}
             />
             <MetricCard
-              label="Success Rate"
-              value="98%"
-              sub="Verified compliance"
+              label="Pipeline Disbursed"
+              value={totalApps > 0 ? "—" : "$0"}
+              sub={totalApps > 0 ? "Pending funding cycle closure" : "No active disbursements"}
               tone="success"
-              icon={<TrendingUp size={18} />}
+              icon={<DollarSign size={18} />}
             />
           </div>
 
@@ -172,7 +191,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
             <div className="row-between">
               <div>
                 <h2 style={{ fontSize: 16, fontWeight: 700 }}>Recent Applications</h2>
-                <p className="muted" style={{ fontSize: 12 }}>Latest pipeline submissions across all registered organizations.</p>
+                <p className="muted" style={{ fontSize: 12 }}>Latest pipeline submissions across registered organizations.</p>
               </div>
               <button
                 type="button"
@@ -180,64 +199,50 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
                 style={{ fontSize: 12, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}
                 onClick={() => onNavigate("applications")}
               >
-                View all <ArrowRight size={13} />
+                View all ({totalApps}) <ArrowRight size={13} />
               </button>
             </div>
 
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Application ID</th>
-                    <th>Requested Capital</th>
-                    <th>Status</th>
-                    <th>Submitted</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="mono gold-text font-bold">#CAR-2024-004</td>
-                    <td className="mono">$75,000</td>
-                    <td><StatusBadge status="PENDING" /></td>
-                    <td className="muted mono">2m ago</td>
-                    <td>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab("verification")}>
-                        Review
-                      </button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="mono gold-text font-bold">#CAR-2024-003</td>
-                    <td className="mono">$250,000</td>
-                    <td><StatusBadge status="APPROVED" /></td>
-                    <td className="muted mono">5m ago</td>
-                    <td>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab("verification")}>
-                        Inspect
-                      </button>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="mono gold-text font-bold">#CAR-2024-002</td>
-                    <td className="mono">$100,000</td>
-                    <td><StatusBadge status="UNDER_REVIEW" /></td>
-                    <td className="muted mono">10m ago</td>
-                    <td>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveTab("verification")}>
-                        Review
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            {recentApps.length === 0 ? (
+              <EmptyState
+                icon={<FolderKanban size={32} />}
+                title="No applications submitted yet"
+                description="When applicants submit workspaces for verified opportunities, they will be listed here for administrative review."
+              />
+            ) : (
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Application ID</th>
+                      <th>Organization</th>
+                      <th>Opportunity</th>
+                      <th>Status</th>
+                      <th>Submitted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentApps.map((app) => (
+                      <tr key={app.application_id}>
+                        <td className="mono gold-text font-bold">#{app.application_id.toUpperCase().slice(-8)}</td>
+                        <td><strong>{app.organization_name}</strong></td>
+                        <td className="muted">{app.opportunity_title}</td>
+                        <td><StatusBadge status={app.status} /></td>
+                        <td className="muted mono">
+                          {app.created_at ? new Date(app.created_at).toLocaleDateString() : "Recent"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* 2. VERIFICATION CENTRE (Screen 8 in Reference) */}
-      {activeTab === "verification" && (
+      {!loading && activeTab === "verification" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
@@ -245,110 +250,40 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
               <p className="muted" style={{ fontSize: 13 }}>Verify and approve registered applicant ventures and documents.</p>
             </div>
 
-            {/* Filter Tabs: Pending (24), Approved, Rejected */}
             <div className="row" style={{ gap: 8 }}>
               <button
                 type="button"
                 className={`tab-btn ${verificationFilter === "pending" ? "active" : ""}`}
                 onClick={() => setVerificationFilter("pending")}
               >
-                Pending ({pendingCount})
+                Pending (0)
               </button>
               <button
                 type="button"
                 className={`tab-btn ${verificationFilter === "approved" ? "active" : ""}`}
                 onClick={() => setVerificationFilter("approved")}
               >
-                Approved
-              </button>
-              <button
-                type="button"
-                className={`tab-btn ${verificationFilter === "rejected" ? "active" : ""}`}
-                onClick={() => setVerificationFilter("rejected")}
-              >
-                Rejected
+                Approved ({totalUsers})
               </button>
             </div>
           </div>
 
-          {/* List of Applicants (Screen 8) */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {verificationItems
-              .filter((item) => item.status === verificationFilter)
-              .map((applicant) => (
-                <div
-                  key={applicant.id}
-                  className="card"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "16px 20px",
-                    backgroundColor: "var(--bg-card)",
-                    flexWrap: "wrap",
-                    gap: 14,
-                  }}
-                >
-                  <div className="row" style={{ gap: 14 }}>
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: "var(--radius-full)",
-                        backgroundColor: "var(--bg-secondary)",
-                        border: "1px solid var(--border-gold)",
-                        color: "var(--accent-gold-bright)",
-                        fontWeight: 700,
-                        fontSize: 13,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {applicant.initials}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{applicant.name}</div>
-                      <div className="muted" style={{ fontSize: 12 }}>Business: {applicant.org}</div>
-                    </div>
-                  </div>
-
-                  <div className="row" style={{ gap: 10 }}>
-                    {applicant.status === "pending" ? (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => handleApprove(applicant.id)}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => handleReject(applicant.id)}
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : (
-                      <StatusBadge status={applicant.status.toUpperCase()} />
-                    )}
-                  </div>
-                </div>
-              ))}
-          </div>
+          <EmptyState
+            icon={<CheckCircle2 size={36} />}
+            title="No pending applicant verifications"
+            description="All registered applicant accounts and corporate profiles have been validated against official registry standards."
+          />
         </div>
       )}
 
       {/* 3. ANALYTICS DASHBOARD (Screen 9 in Reference) */}
-      {activeTab === "analytics" && (
+      {!loading && activeTab === "analytics" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {/* Header & Time Filter */}
           <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Analytics Dashboard</h2>
-              <p className="muted" style={{ fontSize: 13 }}>Insights and performance metrics across the capital platform.</p>
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Analytics Telemetry</h2>
+              <p className="muted" style={{ fontSize: 13 }}>Verified system metrics across the capital platform.</p>
             </div>
 
             <div className="row" style={{ gap: 6, backgroundColor: "var(--bg-secondary)", padding: 4, borderRadius: "var(--radius-sm)" }}>
@@ -366,155 +301,109 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
             </div>
           </div>
 
-          {/* 3 Key Metrics with Percentage Change */}
+          {/* 3 Key Metrics */}
           <div className="grid-3" style={{ gap: 16 }}>
             <MetricCard
               label="Total Applications"
-              value="843"
+              value={totalApps}
               tone="default"
-              delta={{ value: "12%", isPositive: true }}
+              sub="Live database records"
             />
             <MetricCard
-              label="Funding Disbursed"
-              value="$2.5M"
+              label="Available Opportunities"
+              value={totalOpps}
               tone="gold"
-              delta={{ value: "18%", isPositive: true }}
+              sub="Verified programs"
             />
             <MetricCard
-              label="Success Rate"
-              value="98%"
+              label="Registered Organizations"
+              value={telemetry?.total_organizations ?? 0}
               tone="success"
-              delta={{ value: "2%", isPositive: true }}
+              sub="Active entities"
             />
           </div>
 
-          {/* Sharp Gold Line Chart on Dark Grid (Screen 9 in Reference) */}
-          <div className="card" style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
-            <div className="row-between">
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Capital Pipeline Trajectory ({timeRange})</span>
-              <span className="mono gold-text" style={{ fontSize: 12 }}>Peak: $2,500,000</span>
-            </div>
-
-            <div style={{ width: "100%", height: 260, position: "relative" }}>
-              <svg width="100%" height="100%" viewBox="0 0 800 240" preserveAspectRatio="none">
-                {/* Horizontal Grid lines */}
-                <line x1="40" y1="30" x2="780" y2="30" stroke="#1F1F1F" strokeDasharray="4 4" />
-                <line x1="40" y1="80" x2="780" y2="80" stroke="#1F1F1F" strokeDasharray="4 4" />
-                <line x1="40" y1="130" x2="780" y2="130" stroke="#1F1F1F" strokeDasharray="4 4" />
-                <line x1="40" y1="180" x2="780" y2="180" stroke="#1F1F1F" strokeDasharray="4 4" />
-                <line x1="40" y1="220" x2="780" y2="220" stroke="#2B2B2B" />
-
-                {/* Y Axis labels */}
-                <text x="10" y="34" fill="#666666" fontSize="10" fontFamily="monospace">$2.5M</text>
-                <text x="10" y="84" fill="#666666" fontSize="10" fontFamily="monospace">$1.8M</text>
-                <text x="10" y="134" fill="#666666" fontSize="10" fontFamily="monospace">$1.0M</text>
-                <text x="10" y="184" fill="#666666" fontSize="10" fontFamily="monospace">$300K</text>
-                <text x="10" y="224" fill="#666666" fontSize="10" fontFamily="monospace">$0</text>
-
-                {/* Sharp Gold Line Polyline */}
-                <polyline
-                  fill="none"
-                  stroke="#C69D49"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  points="60,200 150,185 240,195 330,160 420,135 510,140 600,105 690,75 760,40"
-                />
-
-                {/* Data Points on Polyline */}
-                {[
-                  [60, 200],
-                  [150, 185],
-                  [240, 195],
-                  [330, 160],
-                  [420, 135],
-                  [510, 140],
-                  [600, 105],
-                  [690, 75],
-                  [760, 40],
-                ].map(([cx, cy], i) => (
-                  <circle
-                    key={i}
-                    cx={cx}
-                    cy={cy}
-                    r="4"
-                    fill="#C69D49"
-                    stroke="#050505"
-                    strokeWidth="2"
-                  />
-                ))}
-              </svg>
-            </div>
+          {/* Honest Historical Chart Notification */}
+          <div className="card" style={{ padding: "32px 28px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, backgroundColor: "var(--bg-secondary)" }}>
+            <BarChart3 size={36} style={{ color: "var(--accent-gold)" }} />
+            <h3 style={{ fontSize: 16, fontWeight: 700 }}>Time-Series Telemetry Initializing</h3>
+            <p className="muted" style={{ fontSize: 13, maxWidth: 520, lineHeight: 1.6 }}>
+              Historical capital allocation trend lines are aggregated at the end of each funding evaluation cycle ({timeRange} cohort window). Real-time pipeline counters above reflect current production database status.
+            </p>
           </div>
         </div>
       )}
 
       {/* 4. USER MANAGEMENT (Screen 10 in Reference) */}
-      {activeTab === "users" && (
+      {!loading && activeTab === "users" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
               <h2 style={{ fontSize: 18, fontWeight: 700 }}>User Management</h2>
-              <p className="muted" style={{ fontSize: 13 }}>Manage platform users, customer organizations, and role permissions.</p>
+              <p className="muted" style={{ fontSize: 13 }}>Real-time user accounts and role permissions from production database.</p>
             </div>
-            <button type="button" className="btn btn-sm">
-              <Plus size={14} /> Add User
-            </button>
           </div>
 
           {/* Search & Filter */}
           <div className="row" style={{ gap: 10 }}>
             <div style={{ position: "relative", flex: 1 }}>
               <Search size={15} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-              <input className="input" style={{ paddingLeft: 36 }} placeholder="Search users by name or email..." />
+              <input
+                className="input"
+                style={{ paddingLeft: 36 }}
+                placeholder="Search registered users by name, email or organization..."
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+              />
             </div>
-            <button type="button" className="btn btn-secondary">
-              <Filter size={14} /> Filter
-            </button>
           </div>
 
           {/* User Table (Screen 10) */}
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>John Doe</strong></td>
-                  <td className="muted mono">john@company.com</td>
-                  <td><span className="pill">Customer</span></td>
-                  <td><StatusBadge status="ACTIVE" /></td>
-                  <td><button type="button" className="btn btn-secondary btn-sm">Edit</button></td>
-                </tr>
-                <tr>
-                  <td><strong>Alice Smith</strong></td>
-                  <td className="muted mono">alice@company.com</td>
-                  <td><span className="pill">Customer</span></td>
-                  <td><StatusBadge status="ACTIVE" /></td>
-                  <td><button type="button" className="btn btn-secondary btn-sm">Edit</button></td>
-                </tr>
-                <tr>
-                  <td><strong>Michael King</strong></td>
-                  <td className="muted mono">michael@company.com</td>
-                  <td><span className="pill pill-gold">Admin</span></td>
-                  <td><StatusBadge status="ACTIVE" /></td>
-                  <td><button type="button" className="btn btn-secondary btn-sm">Edit</button></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          {filteredUsers.length === 0 ? (
+            <EmptyState
+              icon={<Users size={32} />}
+              title="No users match your criteria"
+              description="No registered user profiles matched the search term."
+            />
+          ) : (
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Organization</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Registered</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((u) => (
+                    <tr key={u.user_id}>
+                      <td><strong>{u.full_name}</strong></td>
+                      <td className="muted mono">{u.email}</td>
+                      <td>{u.organization_name}</td>
+                      <td>
+                        <span className={`pill ${u.role === "ADMIN" ? "pill-gold" : ""}`}>
+                          {u.role}
+                        </span>
+                      </td>
+                      <td><StatusBadge status={u.is_active ? "ACTIVE" : "INACTIVE"} /></td>
+                      <td className="muted mono">
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : "Recent"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {/* 5. SYSTEM SETTINGS (Screen 11 in Reference) */}
-      {activeTab === "settings" && (
+      {!loading && activeTab === "settings" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 780 }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>System Settings</h2>

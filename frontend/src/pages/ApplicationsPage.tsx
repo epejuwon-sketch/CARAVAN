@@ -427,8 +427,8 @@ export const ApplicationsPage: React.FC<ApplicationsPageProps> = ({ onNavigate }
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {applications.map((app, index) => {
-            const appIdFormatted = `#CAR-2024-${String(index + 1).padStart(3, "0")}`;
+          {applications.map((app) => {
+            const appIdFormatted = `#${app.application_id.toUpperCase()}`;
             return (
               <div
                 key={app.application_id}

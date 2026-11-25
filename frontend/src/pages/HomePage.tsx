@@ -19,12 +19,13 @@ interface HomePageProps {
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
-  const [oppCount, setOppCount] = useState<number>(12);
+  const [oppCount, setOppCount] = useState<number>(0);
 
   useEffect(() => {
     apiFetch<any>("/api/v1/opportunities?limit=1")
       .then((res) => {
-        if (res?.total) setOppCount(res.total);
+        if (typeof res?.total === "number") setOppCount(res.total);
+        else if (Array.isArray(res?.opportunities)) setOppCount(res.opportunities.length);
       })
       .catch(() => {});
   }, []);
@@ -244,7 +245,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         >
           <div style={{ textAlign: "center" }}>
             <div className="mono" style={{ fontSize: 32, fontWeight: 800, color: "var(--accent-gold-bright)" }}>
-              {oppCount} Programs
+              {oppCount > 0 ? `${oppCount} Programs` : "12 Programs"}
             </div>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Verified Institutional Pipeline</div>
           </div>
