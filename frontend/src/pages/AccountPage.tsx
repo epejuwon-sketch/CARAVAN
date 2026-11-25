@@ -257,6 +257,66 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
           </button>
         </form>
       )}
+
+      {/* Data Governance & Statutory Privacy Controls */}
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: 16, backgroundColor: "var(--bg-card)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#FFFFFF" }}>
+            Data Privacy &amp; Statutory Portability (NDPA 2023 &amp; GDPR)
+          </h2>
+          <p className="muted" style={{ fontSize: 13 }}>
+            You have the right to export your complete venture dossiers and request cryptographic deletion of personal data.
+          </p>
+        </div>
+
+        <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={async () => {
+              try {
+                const data = await apiFetch<any>("/api/v1/account/export-data");
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `caravan-venture-export-${new Date().toISOString().split("T")[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                setMsg("Customer data export successfully downloaded.");
+                setTimeout(() => setMsg(""), 4000);
+              } catch (err: any) {
+                setMsg(err.message || "Failed to export data.");
+              }
+            }}
+          >
+            Export Venture Data (JSON)
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-danger"
+            style={{ backgroundColor: "rgba(225, 29, 72, 0.15)", color: "#FDA4AF", border: "1px solid rgba(225, 29, 72, 0.4)" }}
+            onClick={async () => {
+              const confirmText = prompt("To confirm account deletion under NDPA / GDPR, type DELETE in all capital letters:");
+              if (confirmText === "DELETE") {
+                try {
+                  const res = await apiFetch<any>("/api/v1/account/delete-request", {
+                    method: "POST",
+                    body: JSON.stringify({ confirmation: "DELETE", reason: "Customer self-service requested deletion" }),
+                  });
+                  alert(res.message || "Account deletion scheduled.");
+                } catch (err: any) {
+                  alert(err.message || "Deletion request failed.");
+                }
+              }
+            }}
+          >
+            Request Account Deletion
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
+

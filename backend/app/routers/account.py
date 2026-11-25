@@ -134,3 +134,186 @@ def api_update_organization(
         "female_led": getattr(org, "female_led", False),
         "youth_led": getattr(org, "youth_led", True),
     }
+
+
+class DeleteAccountRequest(BaseModel):
+    confirmation: str
+    reason: Optional[str] = ""
+
+
+@router.get("/export-data")
+def api_export_customer_data(
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """NDPA & GDPR Compliant Customer Data Portability Export."""
+    from datetime import datetime, timezone
+    from app.db.models import (
+        ApplicationRecord,
+        DocumentMetadataRecord,
+        SavedOpportunityRecord,
+        SupportTicketRecord,
+        SubscriptionRecord,
+        AuditLogRecord,
+    )
+
+    org = db.execute(
+        select(OrganizationRecord).where(OrganizationRecord.org_id == principal.organization_id)
+    ).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")
+
+    user = db.get(UserRecord, principal.user_id)
+    apps = db.execute(
+        select(ApplicationRecord).where(ApplicationRecord.organization_id == principal.organization_id)
+    ).scalars().all()
+    docs = db.execute(
+        select(DocumentMetadataRecord).where(DocumentMetadataRecord.organization_id == principal.organization_id)
+    ).scalars().all()
+    saved = db.execute(
+        select(SavedOpportunityRecord).where(SavedOpportunityRecord.organization_id == principal.organization_id)
+    ).scalars().all()
+    tickets = db.execute(
+        select(SupportTicketRecord).where(SupportTicketRecord.organization_id == principal.organization_id)
+    ).scalars().all()
+    sub = db.execute(
+        select(SubscriptionRecord).where(SubscriptionRecord.organization_id == principal.organization_id)
+    ).scalar_one_or_none()
+
+    export_payload = {
+        "export_metadata": {
+            "platform": "CARAVAN Institutional Capital Platform",
+            "compliance": "Nigeria Data Protection Act (NDPA 2023) & GDPR",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "export_version": "1.0",
+            "requester_id": principal.user_id,
+            "requester_email": principal.email,
+        },
+        "user_profile": {
+            "user_id": user.user_id if user else principal.user_id,
+            "email": user.email if user else principal.email,
+            "full_name": user.full_name if user else "",
+            "role": user.role if user else principal.role,
+            "created_at": user.created_at.isoformat() if user and user.created_at else None,
+        },
+        "organization": {
+            "org_id": org.org_id,
+            "name": org.name,
+            "entity_type": org.entity_type,
+            "country": org.country,
+            "state_location": org.state_location,
+            "sector": org.sector,
+            "stage": org.stage,
+            "annual_revenue_usd": org.annual_revenue_usd,
+            "annual_revenue_ngn": getattr(org, "annual_revenue_ngn", 0.0),
+            "funding_goals": org.funding_goals,
+            "cac_registered": getattr(org, "cac_registered", True),
+            "years_in_operation": getattr(org, "years_in_operation", 1),
+            "female_led": getattr(org, "female_led", False),
+            "youth_led": getattr(org, "youth_led", True),
+            "created_at": org.created_at.isoformat() if org.created_at else None,
+        },
+        "subscription": {
+            "tier": sub.tier if sub else "FREE",
+            "status": sub.status if sub else "ACTIVE",
+            "provider": sub.billing_provider if sub else "NONE",
+        },
+        "applications": [
+            {
+                "application_id": a.application_id,
+                "opportunity_id": a.opportunity_id,
+                "status": a.status,
+                "notes": a.notes,
+                "checklist_progress": a.checklist_progress,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in apps
+        ],
+        "documents_metadata": [
+            {
+                "doc_id": d.doc_id,
+                "name": d.name,
+                "file_size_bytes": d.file_size_bytes,
+                "content_type": d.content_type,
+                "sha256_hash": d.sha256_hash,
+                "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
+            }
+            for d in docs
+        ],
+        "saved_opportunities": [
+            {
+                "saved_id": s.saved_id,
+                "opportunity_id": s.opportunity_id,
+                "saved_at": s.saved_at.isoformat() if getattr(s, "saved_at", None) else None,
+            }
+            for s in saved
+        ],
+        "support_tickets": [
+            {
+                "ticket_id": t.ticket_id,
+                "subject": t.subject,
+                "message": t.message,
+                "status": t.status,
+                "response": t.response,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in tickets
+        ],
+    }
+
+    # Log audit trail
+    audit = AuditLogRecord(
+        actor=principal.email,
+        action="CUSTOMER_DATA_EXPORTED",
+        resource=f"org:{principal.organization_id}",
+        outcome="SUCCESS",
+        details={"requester_id": principal.user_id},
+    )
+    db.add(audit)
+    db.commit()
+
+    return export_payload
+
+
+@router.post("/delete-request")
+def api_request_account_deletion(
+    body: DeleteAccountRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Request statutory account deletion and data purge under NDPA / GDPR."""
+    from datetime import datetime, timezone
+    from app.db.models import AuditLogRecord
+
+    if body.confirmation.strip().upper() != "DELETE":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="To confirm deletion, you must provide confirmation string 'DELETE'.",
+        )
+
+    user = db.get(UserRecord, principal.user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    audit = AuditLogRecord(
+        actor=principal.email,
+        action="ACCOUNT_DELETION_REQUESTED",
+        resource=f"user:{principal.user_id}",
+        outcome="SCHEDULED",
+        details={
+            "user_id": principal.user_id,
+            "organization_id": principal.organization_id,
+            "reason": body.reason or "Customer self-service request",
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "success": True,
+        "status": "DELETION_SCHEDULED",
+        "message": "Your account deletion request has been registered and scheduled in accordance with NDPA 2023 statutory retention guidelines.",
+        "retention_policy_days": 30,
+    }
+

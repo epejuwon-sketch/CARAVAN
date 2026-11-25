@@ -224,6 +224,38 @@ def api_recheck_deadlines(
     return res
 
 
+@router.post("/opportunities/{opportunity_id}/detect-changes")
+def api_admin_detect_changes(
+    opportunity_id: str,
+    incoming_data: Dict[str, Any],
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Detect changes in opportunity terms and stage for review."""
+    return DiscoveryEngine.detect_changes_and_stage_review(
+        db,
+        opportunity_id=opportunity_id,
+        incoming_data=incoming_data,
+        actor=f"USER:{principal.user_id}",
+    )
+
+
+@router.post("/opportunities/verify-links")
+def api_admin_verify_links(
+    body: Optional[Dict[str, Any]] = None,
+    principal: CaravanPrincipal = Depends(require_permission("admin:write")),
+    db: Session = Depends(get_db),
+):
+    """Audit opportunity URLs and flag unreachable or invalid links."""
+    unreachable = body.get("unreachable_urls", []) if body else []
+    return DiscoveryEngine.audit_and_verify_links(
+        db,
+        unreachable_urls=unreachable,
+        actor=f"USER:{principal.user_id}",
+    )
+
+
+
 @router.patch("/users/{user_id}/role")
 def api_update_user_role(
     user_id: str,

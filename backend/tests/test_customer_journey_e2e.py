@@ -343,3 +343,111 @@ def test_complete_two_tenant_customer_journeys(client: TestClient):
     saved2_final = client.get("/api/v1/saved", headers=headers2).json()["saved"]
     assert all(s["opportunity_id"] != grow["opportunity_id"] for s in saved2_final)
 
+    # =========================================================================
+    # STEP 18: Password Recovery & Email Verification Lifecycle
+    # =========================================================================
+    # 18a. Request password recovery
+    fp_res = client.post("/api/v1/auth/forgot-password", json={"email": "amaka@amakaagro.ng"})
+    assert fp_res.status_code == 200
+    assert fp_res.json()["success"] is True
+    reset_tok = fp_res.json()["reset_token"]
+    assert reset_tok is not None
+
+    # 18b. Reset password with valid token
+    rp_res = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": reset_tok, "new_password": "NewSecurePassword456!"},
+    )
+    assert rp_res.status_code == 200
+    assert rp_res.json()["success"] is True
+
+    # 18c. Old password now rejected
+    old_fail = client.post("/api/v1/auth/login", json={"email": "amaka@amakaagro.ng", "password": "SecurePassword123!"})
+    assert old_fail.status_code == 401
+
+    # 18d. New password accepted
+    new_ok = client.post("/api/v1/auth/login", json={"email": "amaka@amakaagro.ng", "password": "NewSecurePassword456!"})
+    assert new_ok.status_code == 200
+    updated_token1 = new_ok.json()["access_token"]
+    updated_headers1 = {"Authorization": f"Bearer {updated_token1}"}
+
+    # 18e. Email verification token generation & validation
+    ev_req = client.post("/api/v1/auth/request-verification", json={"email": "amaka@amakaagro.ng"})
+    assert ev_req.status_code == 200
+    ver_token = ev_req.json()["verification_token"]
+    assert ver_token is not None
+
+    ev_conf = client.post("/api/v1/auth/verify-email", json={"token": ver_token})
+    assert ev_conf.status_code == 200
+    assert ev_conf.json()["success"] is True
+
+    # =========================================================================
+    # STEP 19: NDPA / GDPR Statutory Data Export & Deletion Request
+    # =========================================================================
+    # 19a. Customer Data Export
+    exp_res = client.get("/api/v1/account/export-data", headers=updated_headers1)
+    assert exp_res.status_code == 200
+    export_data = exp_res.json()
+    assert export_data["export_metadata"]["compliance"] == "Nigeria Data Protection Act (NDPA 2023) & GDPR"
+    assert export_data["organization"]["name"] == "Amaka Agro Ventures Ltd"
+    assert len(export_data["applications"]) == 1
+    assert len(export_data["documents_metadata"]) == 1
+    assert export_data["documents_metadata"][0]["doc_id"] == doc1_id
+
+    # 19b. Customer Deletion Request (Requires exact string "DELETE")
+    del_bad = client.post("/api/v1/account/delete-request", headers=updated_headers1, json={"confirmation": "no"})
+    assert del_bad.status_code == 400
+
+    del_ok = client.post(
+        "/api/v1/account/delete-request",
+        headers=updated_headers1,
+        json={"confirmation": "DELETE", "reason": "Completed grant cycle and archiving records."},
+    )
+    assert del_ok.status_code == 200
+    assert del_ok.json()["status"] == "DELETION_SCHEDULED"
+    assert del_ok.json()["retention_policy_days"] == 30
+
+    # =========================================================================
+    # STEP 20: Continuous Opportunity Discovery, Change Staging & Link Auditing
+    # =========================================================================
+    from app.core.security import create_access_token
+
+    # Setup Platform Admin headers
+    admin_tok = create_access_token({"sub": "admin_test", "org_id": "org_platform", "email": "admin@caravan.ng", "role": "PLATFORM_ADMIN"})
+    admin_headers = {"Authorization": f"Bearer {admin_tok}"}
+
+    # 20a. Detect changed funding terms and stage for human review
+    change_staged = client.post(
+        f"/api/v1/admin/opportunities/{grow['opportunity_id']}/detect-changes",
+        headers=admin_headers,
+        json={"amount_max": 150000.0, "important_conditions": "Revised mentor network requirements."},
+    )
+    assert change_staged.status_code == 200
+    assert change_staged.json()["changed"] is True
+    assert change_staged.json()["publication_status"] == "PENDING_REVIEW"
+
+    # 20b. Review queue check: changed record appears in pending review
+    queue_res = client.get("/api/v1/admin/opportunities/queue", headers=admin_headers)
+    assert queue_res.status_code == 200
+    pending_ids = [q["opportunity_id"] for q in queue_res.json()["queue"]]
+    assert grow["opportunity_id"] in pending_ids
+
+    # 20c. Human Authorized Approval: Admin approves changed terms
+    appr_res = client.post(
+        f"/api/v1/admin/opportunities/{grow['opportunity_id']}/approve",
+        headers=admin_headers,
+        json={"notes": "Verified new $150,000 ceiling against official Zuri Circle bulletin."},
+    )
+    assert appr_res.status_code == 200
+    assert appr_res.json()["status"] == "PUBLISHED"
+
+    # 20d. Link health verification: flag unreachable or invalid URLs
+    link_audit = client.post(
+        "/api/v1/admin/opportunities/verify-links",
+        headers=admin_headers,
+        json={"unreachable_urls": ["https://www.youngafricainnovates.ng/"]},
+    )
+    assert link_audit.status_code == 200
+    assert link_audit.json()["flagged_count"] >= 1
+
+

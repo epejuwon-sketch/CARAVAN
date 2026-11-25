@@ -41,6 +41,14 @@ def calculate_provenance_hash(canonical_payload: Dict[str, Any]) -> str:
     return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
 
+def make_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class DiscoveryEngine:
     """Funding opportunity discovery, extraction, verification and review pipeline."""
 
@@ -204,7 +212,8 @@ class DiscoveryEngine:
             return {"success": False, "error": "Opportunity not found."}
 
         record.publication_status = "PUBLISHED"
-        if record.opening_date and record.opening_date > utcnow():
+        opening = make_aware(record.opening_date)
+        if opening and opening > utcnow():
             record.verification_status = "UPCOMING_CONFIRMED"
         else:
             record.verification_status = "VERIFIED_OPEN"
@@ -321,3 +330,153 @@ class DiscoveryEngine:
             db.commit()
 
         return {"checked_at": now.isoformat(), "expired_count": updated_count}
+
+    @staticmethod
+    def detect_changes_and_stage_review(
+        db: Session,
+        opportunity_id: str,
+        incoming_data: Dict[str, Any],
+        actor: str = "OFFICIAL_MONITOR",
+    ) -> Dict[str, Any]:
+        """Detect changed deadlines, eligibility, fees or funding terms and stage for human review.
+        
+        Never auto-publishes changes to live verified records.
+        """
+        record = db.get(FundingOpportunityRecord, opportunity_id)
+        if not record:
+            return {"success": False, "error": "Opportunity not found."}
+
+        now = utcnow()
+        tracked_fields = [
+            "deadline_at",
+            "amount_min",
+            "amount_max",
+            "amount_display",
+            "applicant_eligibility",
+            "important_conditions",
+            "application_requirements",
+            "official_source_url",
+            "official_application_url",
+            "funding_type",
+            "is_rolling",
+        ]
+
+        changes: Dict[str, Any] = {}
+        for f in tracked_fields:
+            if f in incoming_data:
+                old_val = getattr(record, f, None)
+                new_val = incoming_data[f]
+                # Compare string representation if datetime
+                if isinstance(old_val, datetime) and isinstance(new_val, datetime):
+                    if make_aware(old_val) != make_aware(new_val):
+                        changes[f] = {"old": old_val.isoformat(), "new": new_val.isoformat()}
+                elif old_val != new_val:
+                    changes[f] = {"old": old_val, "new": new_val}
+
+        if not changes:
+            return {"success": True, "changed": False, "message": "No material changes detected."}
+
+        # Stage changes in review queue
+        record.publication_status = "PENDING_REVIEW"
+        record.last_checked_at = now
+        
+        evidence = dict(record.verification_evidence or {})
+        evidence["pending_changes"] = changes
+        evidence["change_detected_at"] = now.isoformat()
+        evidence["change_detected_by"] = actor
+        record.verification_evidence = evidence
+
+        history = list(record.verification_history or [])
+        history.append({
+            "timestamp": now.isoformat(),
+            "actor": actor,
+            "action": "CHANGES_DETECTED_STAGED_FOR_REVIEW",
+            "modified_fields": list(changes.keys()),
+            "details": changes,
+        })
+        record.verification_history = history
+
+        audit = AuditLogRecord(
+            actor=actor,
+            action="OPPORTUNITY_CHANGE_DETECTED",
+            resource=f"opportunity:{opportunity_id}",
+            outcome="PENDING_REVIEW",
+            details={"title": record.title, "changed_fields": list(changes.keys())},
+        )
+        db.add(audit)
+        db.commit()
+        db.refresh(record)
+
+        return {
+            "success": True,
+            "changed": True,
+            "opportunity_id": record.opportunity_id,
+            "title": record.title,
+            "publication_status": record.publication_status,
+            "staged_changes": changes,
+        }
+
+    @staticmethod
+    def audit_and_verify_links(
+        db: Session,
+        unreachable_urls: Optional[List[str]] = None,
+        actor: str = "LINK_HEALTH_AUDITOR",
+    ) -> Dict[str, Any]:
+        """Audit official source and application links, flagging expired or unreachable URLs."""
+        now = utcnow()
+        stmt = select(FundingOpportunityRecord).where(
+            FundingOpportunityRecord.publication_status.in_(["PUBLISHED", "PENDING_REVIEW"])
+        )
+        records = db.execute(stmt).scalars().all()
+        flagged_count = 0
+        flagged_items = []
+
+        unreachable_set = set(unreachable_urls or [])
+
+        for r in records:
+            url = r.official_source_url or ""
+            app_url = getattr(r, "official_application_url", "") or ""
+
+            is_invalid = not url.startswith("http://") and not url.startswith("https://")
+            is_unreachable = url in unreachable_set or app_url in unreachable_set
+
+            if is_invalid or is_unreachable:
+                old_status = r.verification_status
+                r.verification_status = "NEEDS_VERIFICATION"
+                r.publication_status = "PENDING_REVIEW"
+                r.last_checked_at = now
+                
+                evidence = dict(r.verification_evidence or {})
+                evidence["link_error"] = "URL unreachable or invalid scheme" if is_invalid else "Provider endpoint returned unreachable/error"
+                evidence["flagged_at"] = now.isoformat()
+                r.verification_evidence = evidence
+
+                history = list(r.verification_history or [])
+                history.append({
+                    "timestamp": now.isoformat(),
+                    "actor": actor,
+                    "action": "LINK_HEALTH_FAILED",
+                    "details": f"Flagged URL for human review. Previous status: {old_status}.",
+                })
+                r.verification_history = history
+                flagged_count += 1
+                flagged_items.append({"opportunity_id": r.opportunity_id, "title": r.title, "url": url})
+
+        if flagged_count > 0:
+            audit = AuditLogRecord(
+                actor=actor,
+                action="OPPORTUNITY_LINKS_AUDITED",
+                resource="catalog:opportunities",
+                outcome="FLAGGED",
+                details={"flagged_count": flagged_count, "items": flagged_items},
+            )
+            db.add(audit)
+            db.commit()
+
+        return {
+            "audited_at": now.isoformat(),
+            "total_checked": len(records),
+            "flagged_count": flagged_count,
+            "flagged_items": flagged_items,
+        }
+

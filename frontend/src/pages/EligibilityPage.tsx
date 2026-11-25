@@ -157,6 +157,11 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
             const disqualifications = rec.disqualifications || rec.criteria_breakdown?.disqualifications || [];
             const isClosed = rec.live_status === "CLOSED" || rec.criteria_breakdown?.live_status === "CLOSED";
             const conditions = rec.criteria_breakdown?.important_conditions || "";
+            const whyMatches = rec.criteria_breakdown?.why_matches || (rec as any).why_matches || "";
+            const whyUnavailable = rec.criteria_breakdown?.why_unavailable || (rec as any).why_unavailable || "";
+            const unknownCriteria = rec.criteria_breakdown?.unknown_criteria || (rec as any).unknown_criteria || [];
+            const nextSteps = rec.criteria_breakdown?.next_steps || (rec as any).next_steps || [];
+            const disclaimer = rec.criteria_breakdown?.disclaimer || (rec as any).disclaimer || "CARAVAN provides an algorithmic eligibility estimate based on published statutory criteria. Final funding decisions are made exclusively by the official program provider.";
 
             return (
               <div
@@ -211,6 +216,26 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
                   </div>
                 </div>
 
+                {/* Explainability Summary */}
+                {(whyMatches || whyUnavailable) && (
+                  <div
+                    style={{
+                      backgroundColor: "var(--bg-secondary)",
+                      borderRadius: "var(--radius-sm)",
+                      padding: "10px 14px",
+                      fontSize: 13,
+                      borderLeft: isIneligible ? "3px solid #F43F5E" : "3px solid var(--accent-gold)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: "#FFFFFF", marginBottom: 2 }}>
+                      {isIneligible ? "Why Unmatched / Unavailable:" : "Why You Match:"}
+                    </div>
+                    <div className="muted" style={{ lineHeight: 1.5 }}>
+                      {isIneligible ? whyUnavailable : whyMatches}
+                    </div>
+                  </div>
+                )}
+
                 {/* Important Conditions / Fee Disclosures */}
                 {conditions && (
                   <div
@@ -264,7 +289,7 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
                       }}
                     >
                       <strong style={{ color: "#10B981", display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                        <CheckCircle2 size={13} /> Matching Strengths:
+                        <CheckCircle2 size={13} /> Satisfied Criteria ({strengths.length}):
                       </strong>
                       <ul style={{ margin: 0, paddingLeft: 16, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 4 }}>
                         {strengths.map((s: string, i: number) => (
@@ -284,7 +309,7 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
                       }}
                     >
                       <strong style={{ color: "#FBBF24", display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                        <AlertCircle size={13} /> Recommended Preparations:
+                        <AlertCircle size={13} /> Missing / Recommended Criteria:
                       </strong>
                       <ul style={{ margin: 0, paddingLeft: 16, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 4 }}>
                         {missingReqs.map((m: string, i: number) => (
@@ -294,6 +319,43 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
                     </div>
                   )}
                 </div>
+
+                {/* Unknown Criteria if present */}
+                {unknownCriteria.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: "var(--bg-secondary)",
+                      padding: "8px 12px",
+                      borderRadius: "var(--radius-sm)",
+                      fontSize: 11,
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <span style={{ color: "#FBBF24", fontWeight: 700 }}>Note on Profile Completeness:</span>{" "}
+                    {unknownCriteria.join(" ")}
+                  </div>
+                )}
+
+                {/* Next Steps */}
+                {nextSteps.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: "var(--bg-secondary)",
+                      padding: 12,
+                      borderRadius: "var(--radius-sm)",
+                      fontSize: 12,
+                    }}
+                  >
+                    <strong style={{ color: "var(--accent-gold-bright)", display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <Sparkles size={13} /> What You Can Do Next:
+                    </strong>
+                    <ul style={{ margin: 0, paddingLeft: 16, color: "var(--text-secondary)", display: "flex", flexDirection: "column", gap: 4 }}>
+                      {nextSteps.map((step: string, i: number) => (
+                        <li key={i}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* Criteria Breakdown Grid */}
                 {breakdown && Object.keys(breakdown).length > 0 && (
@@ -331,6 +393,11 @@ export const EligibilityPage: React.FC<EligibilityPageProps> = ({ onNavigate }) 
                     })}
                   </div>
                 )}
+
+                {/* Disclaimer */}
+                <div className="muted" style={{ fontSize: 11, fontStyle: "italic", paddingTop: 4 }}>
+                  {disclaimer}
+                </div>
 
                 {/* Footer Actions */}
                 <div className="row-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 12, paddingTop: 4 }}>

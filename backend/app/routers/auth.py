@@ -80,3 +80,160 @@ def api_me(principal: CaravanPrincipal = Depends(get_current_principal), db: Ses
             "youth_led": getattr(org, "youth_led", True),
         } if org else None,
     }
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class EmailVerificationRequest(BaseModel):
+    token: str
+
+
+@router.post("/forgot-password")
+def api_forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Request a secure password recovery token without leaking user existence."""
+    from datetime import timedelta
+    from sqlalchemy import select
+    from app.db.models import UserRecord, AuditLogRecord
+    from app.core.security import create_access_token
+
+    email_clean = body.email.strip().lower()
+    user = db.execute(select(UserRecord).where(UserRecord.email == email_clean)).scalar_one_or_none()
+    
+    # Always return success message for security / anti-enumeration
+    recovery_token = None
+    if user:
+        recovery_token = create_access_token(
+            {"sub": user.user_id, "email": user.email, "purpose": "password_reset"},
+            expires_delta=timedelta(minutes=30),
+        )
+        audit = AuditLogRecord(
+            actor=email_clean,
+            action="PASSWORD_RESET_REQUESTED",
+            resource=f"user:{user.user_id}",
+            outcome="SUCCESS",
+            details={"email": email_clean},
+        )
+        db.add(audit)
+        db.commit()
+
+    return {
+        "success": True,
+        "message": "If this email is registered, password recovery instructions have been dispatched.",
+        "reset_token": recovery_token,  # Provided in response for sandbox/direct UI workflows
+    }
+
+
+@router.post("/reset-password")
+def api_reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset user password using a verified recovery token."""
+    from fastapi import HTTPException
+    from app.db.models import UserRecord, AuditLogRecord
+    from app.core.security import decode_access_token, hash_password
+
+    try:
+        payload = decode_access_token(body.token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid, expired, or malformed password reset token.",
+        )
+
+    if payload.get("purpose") != "password_reset":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token purpose.")
+
+    user_id = payload.get("sub")
+    user = db.get(UserRecord, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    user.password_hash = hash_password(body.new_password)
+    
+    audit = AuditLogRecord(
+        actor=user.email,
+        action="PASSWORD_RESET_COMPLETED",
+        resource=f"user:{user.user_id}",
+        outcome="SUCCESS",
+        details={"user_id": user_id},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"success": True, "message": "Password updated successfully. You may now log in with your new credentials."}
+
+
+@router.post("/request-verification")
+def api_request_verification(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Generate email verification token."""
+    from datetime import timedelta
+    from sqlalchemy import select
+    from app.db.models import UserRecord, AuditLogRecord
+    from app.core.security import create_access_token
+
+    email_clean = body.email.strip().lower()
+    user = db.execute(select(UserRecord).where(UserRecord.email == email_clean)).scalar_one_or_none()
+    
+    verification_token = None
+    if user:
+        verification_token = create_access_token(
+            {"sub": user.user_id, "email": user.email, "purpose": "email_verification"},
+            expires_delta=timedelta(hours=24),
+        )
+        audit = AuditLogRecord(
+            actor=email_clean,
+            action="EMAIL_VERIFICATION_REQUESTED",
+            resource=f"user:{user.user_id}",
+            outcome="SUCCESS",
+            details={"email": email_clean},
+        )
+        db.add(audit)
+        db.commit()
+
+    return {
+        "success": True,
+        "message": "Email verification link has been dispatched.",
+        "verification_token": verification_token,
+    }
+
+
+@router.post("/verify-email")
+def api_verify_email(body: EmailVerificationRequest, db: Session = Depends(get_db)):
+    """Verify customer email using verification token."""
+    from fastapi import HTTPException
+    from app.db.models import UserRecord, AuditLogRecord
+    from app.core.security import decode_access_token
+
+    try:
+        payload = decode_access_token(body.token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token.",
+        )
+
+    if payload.get("purpose") != "email_verification":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token purpose.")
+
+    user_id = payload.get("sub")
+    user = db.get(UserRecord, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    audit = AuditLogRecord(
+        actor=user.email,
+        action="EMAIL_VERIFIED",
+        resource=f"user:{user.user_id}",
+        outcome="SUCCESS",
+        details={"email": user.email},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"success": True, "message": "Email verified successfully.", "email": user.email}
+

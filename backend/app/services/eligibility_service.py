@@ -177,12 +177,64 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         )
     ).scalar_one_or_none()
 
+    # Explainability and Actionable Guidance Synthesis
+    why_matches = ""
+    why_unavailable = ""
+    next_steps: List[str] = []
+    unknown_criteria: List[str] = []
+
+    # Check for unknown criteria
+    if getattr(org, "annual_revenue_ngn", 0.0) == 0 and getattr(org, "annual_revenue_usd", 0.0) == 0:
+        unknown_criteria.append("Annual revenue turnover not declared in profile; revenue-based filters may require verification.")
+    if not getattr(org, "years_in_operation", None):
+        unknown_criteria.append("Operating history years not specified.")
+
+    if not is_disqualified:
+        if strengths:
+            why_matches = f"Organization aligns with this facility through {', '.join(strengths[:3])}."
+        else:
+            why_matches = "Organization meets baseline geographical and corporate requirements."
+        
+        # Actionable next steps
+        if getattr(opp, "application_requirements", []):
+            next_steps.append(f"Assemble primary dossier items: {', '.join(opp.application_requirements[:3])}.")
+        if opp.application_method == "PARTNER_BANKS":
+            next_steps.append("Contact an accredited Participating Financial Institution (PFI) commercial bank or microfinance bank.")
+        elif opp.application_method == "NOMINATION_ONLY":
+            next_steps.append("Request an official nomination letter through your institutional program coordinator.")
+        elif opp.official_application_url:
+            next_steps.append(f"Review the official portal requirements at {opp.official_application_url}.")
+        next_steps.append("Create a CARAVAN Application Workspace to track dossier completeness and deadline countdowns.")
+    else:
+        why_matches = "Organization does not meet one or more mandatory statutory eligibility thresholds."
+        why_unavailable = f"Disqualified due to: {'; '.join(disqualifications)}."
+        if live_status == "CLOSED":
+            next_steps.append("Monitor CARAVAN for the announcement of the next cycle or upcoming cohort.")
+        if any("revenue" in d.lower() for d in disqualifications):
+            next_steps.append("Update annual revenue records in Venture Profile if recent audited turnover exceeds thresholds.")
+        if any("cac" in d.lower() for d in disqualifications):
+            next_steps.append("Complete formal CAC corporate registration to qualify for institutional facilities.")
+        if any("geography" in d.lower() or "jurisdiction" in d.lower() for d in disqualifications):
+            next_steps.append("Explore opportunities open to nationwide or international jurisdictions.")
+
+    disclaimer = (
+        "CARAVAN provides an algorithmic eligibility estimate based strictly on published statutory criteria. "
+        "Final funding approval, credit underwriting, and award selection are made exclusively by the official program provider."
+    )
+
     breakdown_payload = {
         **breakdown,
         "breakdown": breakdown,
         "strengths": strengths,
         "missing_requirements": missing_requirements,
         "disqualifications": disqualifications,
+        "why_matches": why_matches,
+        "satisfied_criteria": strengths,
+        "missing_criteria": missing_requirements,
+        "unknown_criteria": unknown_criteria,
+        "why_unavailable": why_unavailable,
+        "next_steps": next_steps,
+        "disclaimer": disclaimer,
         "live_status": live_status,
         "official_source_url": opp.official_source_url,
         "official_application_url": getattr(opp, "official_application_url", None) or opp.official_source_url,
@@ -222,11 +274,19 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "is_disqualified": is_disqualified,
         "disqualifications": disqualifications,
         "strengths": strengths,
+        "satisfied_criteria": strengths,
         "missing_requirements": missing_requirements,
+        "missing_criteria": missing_requirements,
+        "unknown_criteria": unknown_criteria,
+        "why_matches": why_matches,
+        "why_unavailable": why_unavailable,
+        "next_steps": next_steps,
+        "disclaimer": disclaimer,
         "live_status": live_status,
         "official_source_url": opp.official_source_url,
         "official_application_url": getattr(opp, "official_application_url", None) or opp.official_source_url,
     }
+
 
 
 def get_recommendations_for_org(db: Session, org_id: str, limit: int = 50) -> Dict[str, Any]:
