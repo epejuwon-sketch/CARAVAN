@@ -10,6 +10,14 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "CARAVAN Executive Engineering" }]
 
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["app*"]
+exclude = ["tests*", "migrations*"]
+
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
 pythonpath = ["backend"]
