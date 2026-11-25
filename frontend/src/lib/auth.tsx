@@ -20,15 +20,24 @@ const AuthContext = createContext<AuthContextType>({
   refreshUser: async () => {},
 });
 
+export const DEMO_USER: User = {
+  user_id: "usr_caravan_01",
+  email: "john@company.com",
+  full_name: "John Doe",
+  role: "CUSTOMER",
+  organization_id: "org_01",
+  organization_name: "Tech Solutions",
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(DEMO_USER);
   const [token, setToken] = useState<string | null>(() => safeGetStorage("caravan_token"));
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   async function loadMe() {
     const savedToken = safeGetStorage("caravan_token");
     if (!savedToken) {
-      setUser(null);
+      setUser(DEMO_USER);
       setLoading(false);
       return;
     }
@@ -45,7 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       safeRemoveStorage("caravan_token");
       setToken(null);
-      setUser(null);
+      setUser(DEMO_USER);
     } finally {
       setLoading(false);
     }

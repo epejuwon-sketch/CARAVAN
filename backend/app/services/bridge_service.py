@@ -30,10 +30,22 @@ def get_caravan_operations_telemetry(db: Session) -> Dict[str, Any]:
     # 2. Opportunities by status
     total_opps = db.execute(select(func.count(FundingOpportunityRecord.opportunity_id))).scalar() or 0
     verified_opps = db.execute(
-        select(func.count(FundingOpportunityRecord.opportunity_id)).where(FundingOpportunityRecord.verification_status == "VERIFIED")
+        select(func.count(FundingOpportunityRecord.opportunity_id)).where(
+            FundingOpportunityRecord.verification_status.in_(["VERIFIED", "VERIFIED_OPEN"])
+        )
+    ).scalar() or 0
+    upcoming_opps = db.execute(
+        select(func.count(FundingOpportunityRecord.opportunity_id)).where(
+            FundingOpportunityRecord.verification_status.in_(["UPCOMING", "UPCOMING_CONFIRMED"])
+        )
+    ).scalar() or 0
+    closed_opps = db.execute(
+        select(func.count(FundingOpportunityRecord.opportunity_id)).where(FundingOpportunityRecord.verification_status == "CLOSED")
     ).scalar() or 0
     unverified_opps = db.execute(
-        select(func.count(FundingOpportunityRecord.opportunity_id)).where(FundingOpportunityRecord.verification_status == "UNVERIFIED")
+        select(func.count(FundingOpportunityRecord.opportunity_id)).where(
+            FundingOpportunityRecord.verification_status.in_(["UNVERIFIED", "NEEDS_REVIEW", "PENDING_REVIEW"])
+        )
     ).scalar() or 0
     expired_opps = db.execute(
         select(func.count(FundingOpportunityRecord.opportunity_id)).where(FundingOpportunityRecord.verification_status == "EXPIRED")
@@ -100,6 +112,8 @@ def get_caravan_operations_telemetry(db: Session) -> Dict[str, Any]:
         "funding_intelligence": {
             "total_opportunities": total_opps,
             "verified_count": verified_opps,
+            "upcoming_count": upcoming_opps,
+            "closed_count": closed_opps,
             "unverified_count": unverified_opps,
             "expired_count": expired_opps,
         },

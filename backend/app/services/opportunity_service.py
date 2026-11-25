@@ -107,6 +107,9 @@ def list_opportunities(
                 "verification_status": r.verification_status,
                 "verified_at": r.verified_at.isoformat() if r.verified_at else None,
                 "source_name": r.source_name,
+                "confidence_score": getattr(r, "confidence_score", 1.0),
+                "evidence_completeness": getattr(r, "evidence_completeness", "COMPLETE"),
+                "publication_status": getattr(r, "publication_status", "PUBLISHED"),
             }
             for r in records
         ],
@@ -143,6 +146,15 @@ def get_opportunity_detail(db: Session, opportunity_id: str) -> dict:
         "verified_at": r.verified_at.isoformat() if r.verified_at else None,
         "source_name": r.source_name,
         "provenance_hash": r.provenance_hash,
+        "source_retrieval_at": r.source_retrieval_at.isoformat() if getattr(r, "source_retrieval_at", None) else None,
+        "verification_method": getattr(r, "verification_method", "MANUAL_REGISTRY_AUDIT"),
+        "verification_evidence": getattr(r, "verification_evidence", {}),
+        "confidence_score": getattr(r, "confidence_score", 1.0),
+        "evidence_completeness": getattr(r, "evidence_completeness", "COMPLETE"),
+        "last_checked_at": r.last_checked_at.isoformat() if getattr(r, "last_checked_at", None) else None,
+        "next_verification_at": r.next_verification_at.isoformat() if getattr(r, "next_verification_at", None) else None,
+        "verification_history": getattr(r, "verification_history", []),
+        "publication_status": getattr(r, "publication_status", "PUBLISHED"),
     }
 
 

@@ -23,7 +23,19 @@ class CaravanPrincipal:
 
     @property
     def is_admin(self) -> bool:
-        return self.role in ("ADMIN", "OWNER")
+        return self.role in ("ADMIN", "OWNER", "PLATFORM_ADMIN", "SUPER_ADMIN")
+
+    @property
+    def is_reviewer(self) -> bool:
+        return self.role in ("OPPORTUNITY_REVIEWER", "PLATFORM_ADMIN", "SUPER_ADMIN", "ADMIN")
+
+    @property
+    def is_support(self) -> bool:
+        return self.role in ("SUPPORT", "PLATFORM_ADMIN", "SUPER_ADMIN", "ADMIN")
+
+    @property
+    def is_org_admin(self) -> bool:
+        return self.role in ("ORGANIZATION_ADMIN", "ADMIN", "OWNER", "SUPER_ADMIN")
 
     @property
     def is_bridge(self) -> bool:
@@ -46,9 +58,8 @@ ROLE_PERMISSIONS: dict[str, Set[str]] = {
         "notifications:read",
         "billing:read",
     },
-    "ADMIN": {
+    "ORGANIZATION_ADMIN": {
         "opportunities:read",
-        "opportunities:write",
         "eligibility:read",
         "eligibility:write",
         "applications:read",
@@ -57,11 +68,115 @@ ROLE_PERMISSIONS: dict[str, Set[str]] = {
         "saved:write",
         "account:read",
         "account:write",
-        "admin:read",
-        "admin:write",
         "support:read",
         "support:write",
         "notifications:read",
+        "billing:read",
+        "billing:write",
+        "org_users:read",
+        "org_users:write",
+    },
+    "SUPPORT": {
+        "opportunities:read",
+        "support:read",
+        "support:write",
+        "support:manage",
+        "notifications:read",
+        "notifications:write",
+        "admin:read",
+    },
+    "OPPORTUNITY_REVIEWER": {
+        "opportunities:read",
+        "opportunities:write",
+        "opportunities:review",
+        "opportunities:verify",
+        "admin:read",
+    },
+    "PLATFORM_ADMIN": {
+        "opportunities:read",
+        "opportunities:write",
+        "opportunities:review",
+        "opportunities:verify",
+        "opportunities:publish",
+        "eligibility:read",
+        "eligibility:write",
+        "applications:read",
+        "applications:write",
+        "applications:review",
+        "saved:read",
+        "saved:write",
+        "account:read",
+        "account:write",
+        "admin:read",
+        "admin:write",
+        "admin:telemetry",
+        "admin:users",
+        "admin:settings",
+        "support:read",
+        "support:write",
+        "support:manage",
+        "notifications:read",
+        "notifications:write",
+        "billing:read",
+        "billing:write",
+    },
+    "SUPER_ADMIN": {
+        "opportunities:read",
+        "opportunities:write",
+        "opportunities:review",
+        "opportunities:verify",
+        "opportunities:publish",
+        "eligibility:read",
+        "eligibility:write",
+        "applications:read",
+        "applications:write",
+        "applications:review",
+        "saved:read",
+        "saved:write",
+        "account:read",
+        "account:write",
+        "admin:read",
+        "admin:write",
+        "admin:telemetry",
+        "admin:users",
+        "admin:settings",
+        "admin:security",
+        "admin:audit",
+        "roles:manage",
+        "support:read",
+        "support:write",
+        "support:manage",
+        "notifications:read",
+        "notifications:write",
+        "billing:read",
+        "billing:write",
+    },
+    "ADMIN": {
+        # Legacy alias for PLATFORM_ADMIN
+        "opportunities:read",
+        "opportunities:write",
+        "opportunities:review",
+        "opportunities:verify",
+        "opportunities:publish",
+        "eligibility:read",
+        "eligibility:write",
+        "applications:read",
+        "applications:write",
+        "applications:review",
+        "saved:read",
+        "saved:write",
+        "account:read",
+        "account:write",
+        "admin:read",
+        "admin:write",
+        "admin:telemetry",
+        "admin:users",
+        "admin:settings",
+        "support:read",
+        "support:write",
+        "support:manage",
+        "notifications:read",
+        "notifications:write",
         "billing:read",
         "billing:write",
     },
@@ -69,8 +184,12 @@ ROLE_PERMISSIONS: dict[str, Set[str]] = {
         "bridge:read",
         "bridge:write",
         "opportunities:read",
+        "opportunities:write",
+        "opportunities:review",
+        "opportunities:verify",
         "admin:read",
         "billing:read",
+        "telemetry:read",
     },
 }
 

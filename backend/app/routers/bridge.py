@@ -28,3 +28,14 @@ def api_bridge_sweep_expired(
 ):
     """Scoped S2S action allowing ULTRON Operations to sweep expired funding opportunities."""
     return execute_bridge_sweep_expired(db)
+
+
+@router.post("/opportunities")
+def api_bridge_ingest_candidate(
+    candidate: dict,
+    principal: CaravanPrincipal = Depends(verify_ultron_bridge),
+    db: Session = Depends(get_db),
+):
+    """Scoped S2S endpoint allowing ULTRON Sentinel Sub-Agent to ingest candidate funding opportunities into the review queue."""
+    from app.services.discovery_service import DiscoveryEngine
+    return DiscoveryEngine.ingest_discovered_opportunity(db, candidate, discovered_by="ULTRON_SENTINEL_SUBAGENT")

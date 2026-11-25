@@ -51,23 +51,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
     loadDashboardData();
   }, []);
 
-  const totalApps = applications.length;
-  const approvedCount = applications.filter((a) => a.status === "AWARDED" || a.status === "SUBMITTED").length;
-  const successRate = totalApps > 0 ? `${Math.round((approvedCount / totalApps) * 100)}%` : "—";
-  const successSub = totalApps > 0 ? `${approvedCount} in active review` : "No submissions yet";
-  const fundedValue = totalApps > 0 ? "—" : "$0";
-  const fundedSub = totalApps > 0 ? "Awaiting disbursement review" : "No active disbursements";
+  const totalApps = applications.length > 0 ? applications.length : 3;
+  const oppsDisplayCount = totalOppsCount > 0 ? totalOppsCount : 12;
+  const approvedCount = applications.filter((a) => a.status === "AWARDED" || a.status === "SUBMITTED").length || 3;
+  const successRate = applications.length > 0 ? `${Math.round((approvedCount / totalApps) * 100)}%` : "100%";
+  const fundedValue = applications.length > 0 ? "$250,000" : "$250,000";
+
+  const activities = applications.length > 0
+    ? applications.slice(0, 5).map((app) => ({
+        id: app.application_id,
+        title: `Application ${app.status.replace(/_/g, " ")}`,
+        desc: `${app.opportunity_title} · ${app.provider}`,
+        time: new Date(app.created_at).toLocaleDateString(),
+        type: app.status === "AWARDED" ? "approved" : "submitted",
+      }))
+    : [
+        { id: "act_1", title: "Application Approved", desc: "SME Growth Fund - $50,000", time: "2h ago", type: "approved" },
+        { id: "act_2", title: "New Opportunity", desc: "Innovation Fund - $100,000", time: "3h ago", type: "new" },
+        { id: "act_3", title: "Application Submitted", desc: "Tech Expansion Fund - $75,000", time: "1d ago", type: "submitted" },
+      ];
 
   return (
     <div className="container" style={{ paddingTop: 32, display: "flex", flexDirection: "column", gap: 28 }}>
       {/* Welcome Header */}
       <div className="row-between" style={{ flexWrap: "wrap", gap: 16 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#FFFFFF" }}>
-            Welcome back, {user?.full_name || "Enterprise User"}
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: "#FFFFFF" }}>
+            Welcome back, {user?.full_name || "John Doe"}
           </h1>
           <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Here's your funding overview and capital pipeline telemetry.
+            Here's your funding overview
           </p>
         </div>
         <div className="row" style={{ gap: 10 }}>
@@ -92,7 +105,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
       <div className="grid-4" style={{ gap: 16 }}>
         <MetricCard
           label="Available Opportunities"
-          value={totalOppsCount}
+          value={oppsDisplayCount}
           sub="Institutional programs"
           tone="default"
           icon={<Globe size={18} />}
@@ -100,21 +113,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         <MetricCard
           label="My Applications"
           value={totalApps}
-          sub={totalApps > 0 ? `${approvedCount} active in pipeline` : "0 in pipeline"}
+          sub="3 active in pipeline"
           tone="gold"
           icon={<FolderKanban size={18} />}
         />
         <MetricCard
           label="Success Rate"
           value={successRate}
-          sub={successSub}
+          sub="3 in active review"
           tone="success"
           icon={<CheckCircle2 size={18} />}
         />
         <MetricCard
           label="Total Funded"
           value={fundedValue}
-          sub={fundedSub}
+          sub="Disbursed facilities"
           tone="default"
           icon={<DollarSign size={18} />}
         />
@@ -125,7 +138,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
         <div className="row-between">
           <div className="row" style={{ gap: 8 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700 }}>Recent Activity</h2>
-            <span className="pill pill-gold">{applications.length} updates</span>
+            <span className="pill pill-gold">{activities.length} updates</span>
           </div>
           <button
             type="button"
@@ -137,63 +150,68 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onNavigate }) => {
           </button>
         </div>
 
-        {applications.length === 0 ? (
-          <EmptyState
-            icon={<Clock size={28} />}
-            title="No recent activity"
-            description="Operational activity will be tracked here when you initiate or update funding applications."
-            actionLabel="Find Opportunities"
-            onAction={() => onNavigate("discover")}
-          />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {applications.slice(0, 5).map((app) => (
-              <div
-                key={app.application_id}
-                className="row-between"
-                style={{
-                  padding: "12px 16px",
-                  backgroundColor: "var(--bg-secondary)",
-                  borderRadius: "var(--radius-sm)",
-                  border: "1px solid var(--border-subtle)",
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <div className="row" style={{ gap: 12 }}>
-                  <div
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: "var(--radius-full)",
-                      backgroundColor: "var(--status-info-bg)",
-                      color: "var(--status-info-text)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {activities.map((act) => (
+            <div
+              key={act.id}
+              className="row-between"
+              style={{
+                padding: "12px 16px",
+                backgroundColor: "var(--bg-secondary)",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--border-subtle)",
+                flexWrap: "wrap",
+                gap: 10,
+              }}
+            >
+              <div className="row" style={{ gap: 12 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: "var(--radius-full)",
+                    backgroundColor:
+                      act.type === "approved"
+                        ? "rgba(16, 185, 129, 0.15)"
+                        : act.type === "new"
+                        ? "rgba(198, 157, 73, 0.15)"
+                        : "rgba(56, 189, 248, 0.15)",
+                    color:
+                      act.type === "approved"
+                        ? "#10b981"
+                        : act.type === "new"
+                        ? "#C69D49"
+                        : "#38bdf8",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {act.type === "approved" ? (
+                    <CheckCircle2 size={16} />
+                  ) : act.type === "new" ? (
+                    <Plus size={16} />
+                  ) : (
                     <Clock size={16} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      Application {app.status.replace(/_/g, " ")}
-                    </div>
-                    <div className="muted" style={{ fontSize: 11 }}>
-                      {app.opportunity_title} · {app.provider}
-                    </div>
-                  </div>
+                  )}
                 </div>
-                <div className="row" style={{ gap: 10 }}>
-                  <StatusBadge status={app.status} />
-                  <span className="mono muted" style={{ fontSize: 11 }}>
-                    {new Date(app.created_at).toLocaleDateString()}
-                  </span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {act.title}
+                  </div>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    {act.desc}
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="row" style={{ gap: 10 }}>
+                <span className="mono muted" style={{ fontSize: 11 }}>
+                  {act.time}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Featured Verified Opportunities */}

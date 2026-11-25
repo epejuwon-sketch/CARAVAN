@@ -112,7 +112,9 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
 def get_recommendations_for_org(db: Session, org_id: str, limit: int = 20) -> List[dict]:
     # Run matching for top open opportunities
     opportunities = db.execute(
-        select(FundingOpportunityRecord).where(FundingOpportunityRecord.verification_status == "VERIFIED").limit(limit)
+        select(FundingOpportunityRecord).where(
+            FundingOpportunityRecord.verification_status.in_(["VERIFIED", "VERIFIED_OPEN", "UPCOMING_CONFIRMED", "UPCOMING"])
+        ).limit(limit)
     ).scalars().all()
 
     results = []

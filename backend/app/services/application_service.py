@@ -15,6 +15,8 @@ from app.db.models import (
     AuditLogRecord,
     gen_id,
 )
+from app.services.malware_scanner import scan_file_bytes
+from app.services.storage_service import get_storage_service
 
 APPLICATION_STATUSES = ["DRAFTING", "DOCS_COLLECTING", "REVIEW", "SUBMITTED", "AWARDED", "REJECTED"]
 
@@ -202,14 +204,54 @@ def add_document_metadata(
     doc_type: str = "PITCH_DECK",
     file_size_bytes: int = 1024,
 ) -> dict:
+    # 1. Tenant ownership validation for linked application
+    if application_id:
+        app_check = db.execute(
+            select(ApplicationRecord).where(
+                ApplicationRecord.application_id == application_id,
+                ApplicationRecord.organization_id == org_id,
+            )
+        ).scalar_one_or_none()
+        if not app_check:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application workspace not found.")
+
+    # 2. Filename sanitization
+    clean_name = name.strip().replace("\0", "").replace("../", "").replace("..\\", "")
+    if not clean_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document filename.")
+
+    # 3. Document type validation
+    valid_types = {
+        "PITCH_DECK",
+        "FINANCIALS",
+        "CERTIFICATE",
+        "TAX_CLEARANCE",
+        "AUDITED_ACCOUNTS",
+        "BUSINESS_PLAN",
+        "OTHER",
+    }
+    clean_type = doc_type.upper().strip()
+    if clean_type not in valid_types:
+        clean_type = "OTHER"
+
+    # 4. File size limit enforcement (25 MB max)
+    MAX_FILE_BYTES = 25 * 1024 * 1024
+    if file_size_bytes <= 0 or file_size_bytes > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File size must be between 1 byte and 25 MB ({MAX_FILE_BYTES} bytes).",
+        )
+
     doc_id = gen_id("doc")
     doc = DocumentMetadataRecord(
         doc_id=doc_id,
         organization_id=org_id,
         application_id=application_id,
-        name=name.strip(),
-        doc_type=doc_type.upper(),
+        name=clean_name[:255],
+        doc_type=clean_type,
         file_size_bytes=file_size_bytes,
+        scan_status="AVAILABLE",
+        scan_details={"details": "Direct metadata registration."},
     )
     db.add(doc)
     db.commit()
@@ -220,5 +262,210 @@ def add_document_metadata(
         "name": doc.name,
         "doc_type": doc.doc_type,
         "file_size_bytes": doc.file_size_bytes,
+        "scan_status": doc.scan_status,
         "uploaded_at": doc.uploaded_at.isoformat(),
     }
+
+
+def upload_document_binary(
+    db: Session,
+    org_id: str,
+    application_id: Optional[str],
+    filename: str,
+    file_bytes: bytes,
+    doc_type: str = "PITCH_DECK",
+    actor: str = "anonymous",
+) -> dict:
+    """Validate, scan for malware, persist in private tenant storage, and record document."""
+    # 1. Tenant ownership validation
+    if application_id:
+        app_check = db.execute(
+            select(ApplicationRecord).where(
+                ApplicationRecord.application_id == application_id,
+                ApplicationRecord.organization_id == org_id,
+            )
+        ).scalar_one_or_none()
+        if not app_check:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application workspace not found.")
+
+    # 2. Filename sanitization
+    clean_name = filename.strip().replace("\0", "").replace("../", "").replace("..\\", "")
+    if not clean_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document filename.")
+
+    # 3. File extension & size check
+    MAX_FILE_BYTES = 25 * 1024 * 1024
+    if len(file_bytes) == 0 or len(file_bytes) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File size must be between 1 byte and 25 MB ({MAX_FILE_BYTES} bytes).",
+        )
+
+    allowed_exts = {"pdf", "png", "jpg", "jpeg", "docx", "xlsx"}
+    ext = clean_name.rsplit(".", 1)[-1].lower() if "." in clean_name else ""
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File extension '.{ext}' is not permitted. Allowed: {', '.join(sorted(allowed_exts))}",
+        )
+
+    # 4. Anti-malware and magic header security inspection
+    scan_report = scan_file_bytes(file_bytes, clean_name)
+    storage = get_storage_service()
+    doc_id = gen_id("doc")
+
+    if not scan_report.is_clean:
+        # Quarantine file in isolated storage and record audit event
+        storage_res = storage.store_document(org_id, doc_id, file_bytes, quarantined=True)
+        doc = DocumentMetadataRecord(
+            doc_id=doc_id,
+            organization_id=org_id,
+            application_id=application_id,
+            name=clean_name[:255],
+            doc_type=doc_type.upper().strip(),
+            file_size_bytes=len(file_bytes),
+            storage_path=storage_res.storage_path,
+            content_type=f"application/{ext}",
+            scan_status="QUARANTINED",
+            scan_details=scan_report.to_dict(),
+            sha256_hash=storage_res.sha256_hash,
+        )
+        db.add(doc)
+        audit = AuditLogRecord(
+            actor=actor,
+            action="DOCUMENT_QUARANTINED",
+            resource=f"doc:{doc_id}",
+            outcome="FLAGGED",
+            details=scan_report.to_dict(),
+        )
+        db.add(audit)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Security scan rejected file: {scan_report.details} Threat: {scan_report.threat_name}",
+        )
+
+    # Clean file: Store in private tenant vault
+    storage_res = storage.store_document(org_id, doc_id, file_bytes, quarantined=False)
+    doc = DocumentMetadataRecord(
+        doc_id=doc_id,
+        organization_id=org_id,
+        application_id=application_id,
+        name=clean_name[:255],
+        doc_type=doc_type.upper().strip(),
+        file_size_bytes=len(file_bytes),
+        storage_path=storage_res.storage_path,
+        content_type=f"application/{ext}",
+        scan_status="AVAILABLE",
+        scan_details=scan_report.to_dict(),
+        sha256_hash=storage_res.sha256_hash,
+    )
+    db.add(doc)
+    audit = AuditLogRecord(
+        actor=actor,
+        action="DOCUMENT_UPLOADED",
+        resource=f"doc:{doc_id}",
+        outcome="SUCCESS",
+        details={"name": clean_name, "size": len(file_bytes), "sha256": storage_res.sha256_hash},
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(doc)
+
+    return {
+        "doc_id": doc.doc_id,
+        "organization_id": doc.organization_id,
+        "application_id": doc.application_id,
+        "name": doc.name,
+        "doc_type": doc.doc_type,
+        "file_size_bytes": doc.file_size_bytes,
+        "scan_status": doc.scan_status,
+        "sha256_hash": doc.sha256_hash,
+        "uploaded_at": doc.uploaded_at.isoformat(),
+        "download_url": f"/api/v1/applications/{application_id}/documents/{doc.doc_id}/download",
+    }
+
+
+def download_document_binary(db: Session, org_id: str, application_id: str, doc_id: str, actor: str) -> Tuple[bytes, str, str]:
+    """Retrieve private document bytes verifying tenant ownership and clean scan status."""
+    doc = db.execute(
+        select(DocumentMetadataRecord).where(
+            DocumentMetadataRecord.doc_id == doc_id,
+            DocumentMetadataRecord.organization_id == org_id,
+            DocumentMetadataRecord.application_id == application_id,
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    if doc.scan_status == "QUARANTINED":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access forbidden: Document is in quarantine due to security threats.",
+        )
+
+    storage = get_storage_service()
+    content, file_path = storage.retrieve_document(org_id, doc_id)
+
+    audit = AuditLogRecord(
+        actor=actor,
+        action="DOCUMENT_DOWNLOADED",
+        resource=f"doc:{doc_id}",
+        outcome="SUCCESS",
+        details={"name": doc.name, "size": doc.file_size_bytes},
+    )
+    db.add(audit)
+    db.commit()
+
+    return content, doc.name, doc.content_type
+
+
+def get_document_download_token(db: Session, org_id: str, application_id: str, doc_id: str) -> dict:
+    """Generate scoped temporary signed download token."""
+    doc = db.execute(
+        select(DocumentMetadataRecord).where(
+            DocumentMetadataRecord.doc_id == doc_id,
+            DocumentMetadataRecord.organization_id == org_id,
+            DocumentMetadataRecord.application_id == application_id,
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    if doc.scan_status == "QUARANTINED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Document is quarantined.")
+
+    storage = get_storage_service()
+    token = storage.generate_scoped_download_token(org_id, doc_id, expires_in_seconds=900)
+    return {
+        "doc_id": doc_id,
+        "token": token,
+        "expires_in_seconds": 900,
+        "stream_url": f"/api/v1/applications/{application_id}/documents/{doc_id}/stream?token={token}",
+    }
+
+
+def delete_document_metadata(db: Session, org_id: str, doc_id: str, actor: str = "org_user") -> dict:
+    """Safely delete document metadata and shred physical storage, strictly scoped to the tenant organization."""
+    doc = db.execute(
+        select(DocumentMetadataRecord).where(
+            DocumentMetadataRecord.doc_id == doc_id,
+            DocumentMetadataRecord.organization_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    storage = get_storage_service()
+    storage.delete_document(org_id, doc_id)
+
+    db.delete(doc)
+    audit = AuditLogRecord(
+        actor=actor,
+        action="DOCUMENT_DELETED",
+        resource=f"doc:{doc_id}",
+        outcome="SUCCESS",
+        details={"doc_name": doc.name},
+    )
+    db.add(audit)
+    db.commit()
+    return {"status": "DELETED", "doc_id": doc_id}

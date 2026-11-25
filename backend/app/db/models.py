@@ -88,10 +88,21 @@ class FundingOpportunityRecord(Base):
     is_rolling = Column(Boolean, default=False, nullable=False)
     
     official_source_url = Column(String(500), nullable=False)
-    verification_status = Column(String(32), default="VERIFIED", nullable=False, index=True)  # VERIFIED, UNVERIFIED, EXPIRED, CLOSED
+    verification_status = Column(String(32), default="VERIFIED", nullable=False, index=True)  # DISCOVERED, PENDING_REVIEW, VERIFIED, UNVERIFIED, REJECTED, UPCOMING, OPEN, CLOSED, EXPIRED, SUSPENDED
     verified_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     source_name = Column(String(160), default="Direct Official Registry", nullable=False)
     provenance_hash = Column(String(64), default="", nullable=False)
+
+    # Genuine Source Verification & Intelligence Attributes
+    source_retrieval_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    verification_method = Column(String(64), default="MANUAL_REGISTRY_AUDIT", nullable=False)
+    verification_evidence = Column(JSON, default=dict, nullable=False)
+    confidence_score = Column(Float, default=1.0, nullable=False)
+    evidence_completeness = Column(String(32), default="COMPLETE", nullable=False)  # COMPLETE, PARTIAL, UNCONFIRMED
+    last_checked_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    next_verification_at = Column(DateTime(timezone=True), nullable=True)
+    verification_history = Column(JSON, default=list, nullable=False)
+    publication_status = Column(String(32), default="PUBLISHED", nullable=False, index=True)  # DRAFT, PENDING_REVIEW, PUBLISHED, ARCHIVED
     
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -138,6 +149,12 @@ class DocumentMetadataRecord(Base):
     name = Column(String(255), nullable=False)
     doc_type = Column(String(64), default="PITCH_DECK", nullable=False)  # PITCH_DECK, FINANCIALS, CERTIFICATE, TAX_CLEARANCE
     file_size_bytes = Column(Integer, default=0, nullable=False)
+    storage_path = Column(String(512), nullable=True)
+    content_type = Column(String(128), default="application/octet-stream", nullable=False)
+    scan_status = Column(String(32), default="AVAILABLE", nullable=False)  # AVAILABLE, QUARANTINED, PENDING_SCAN, FAILED
+    scan_details = Column(JSON, default=dict, nullable=False)
+    sha256_hash = Column(String(64), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
     uploaded_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

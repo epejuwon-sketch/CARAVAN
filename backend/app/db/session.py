@@ -90,7 +90,82 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def run_migrations():
-    """Ensure database tables are initialized and created."""
+    """Ensure database tables are initialized and created, and migrate missing columns."""
     engine = get_engine()
     from app.db import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+
+    # Idempotent column migrations for evolved models
+    with engine.begin() as conn:
+        dialect_name = engine.dialect.name
+        if dialect_name == "postgresql":
+            # Add missing columns to caravan_funding_opportunities if absent
+            migration_statements = [
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS source_retrieval_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_method VARCHAR(64) DEFAULT 'MANUAL_REGISTRY_AUDIT'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_evidence JSON DEFAULT '{}'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 1.0",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS evidence_completeness VARCHAR(32) DEFAULT 'COMPLETE'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS next_verification_at TIMESTAMPTZ",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_history JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS publication_status VARCHAR(32) DEFAULT 'PUBLISHED'",
+            ]
+            for stmt in migration_statements:
+                try:
+                    conn.execute(text(stmt))
+                except Exception:
+                    pass
+        elif dialect_name == "sqlite":
+            result = conn.execute(text("PRAGMA table_info(caravan_funding_opportunities)")).fetchall()
+            existing_cols = {row[1] for row in result}
+            sqlite_cols = [
+                ("source_retrieval_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+                ("verification_method", "VARCHAR(64) DEFAULT 'MANUAL_REGISTRY_AUDIT'"),
+                ("verification_evidence", "JSON DEFAULT '{}'"),
+                ("confidence_score", "FLOAT DEFAULT 1.0"),
+                ("evidence_completeness", "VARCHAR(32) DEFAULT 'COMPLETE'"),
+                ("last_checked_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+                ("next_verification_at", "DATETIME"),
+                ("verification_history", "JSON DEFAULT '[]'"),
+                ("publication_status", "VARCHAR(32) DEFAULT 'PUBLISHED'"),
+            ]
+            for col_name, col_def in sqlite_cols:
+                if col_name not in existing_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE caravan_funding_opportunities ADD COLUMN {col_name} {col_def}"))
+                    except Exception:
+                        pass
+
+        # Idempotent column migrations for caravan_documents
+        if dialect_name == "postgresql":
+            doc_stmts = [
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS storage_path VARCHAR(512)",
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS content_type VARCHAR(128) DEFAULT 'application/octet-stream'",
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(32) DEFAULT 'AVAILABLE'",
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_details JSON DEFAULT '{}'",
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS sha256_hash VARCHAR(64)",
+                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            ]
+            for stmt in doc_stmts:
+                try:
+                    conn.execute(text(stmt))
+                except Exception:
+                    pass
+        elif dialect_name == "sqlite":
+            res = conn.execute(text("PRAGMA table_info(caravan_documents)")).fetchall()
+            existing_doc_cols = {r[1] for r in res}
+            sqlite_doc_cols = [
+                ("storage_path", "VARCHAR(512)"),
+                ("content_type", "VARCHAR(128) DEFAULT 'application/octet-stream'"),
+                ("scan_status", "VARCHAR(32) DEFAULT 'AVAILABLE'"),
+                ("scan_details", "JSON DEFAULT '{}'"),
+                ("sha256_hash", "VARCHAR(64)"),
+                ("deleted_at", "DATETIME"),
+            ]
+            for col_name, col_def in sqlite_doc_cols:
+                if col_name not in existing_doc_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE caravan_documents ADD COLUMN {col_name} {col_def}"))
+                    except Exception:
+                        pass

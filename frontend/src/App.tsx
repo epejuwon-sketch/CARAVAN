@@ -32,6 +32,8 @@ import {
   Lock,
 } from "lucide-react";
 
+import { PortalLayout } from "./components/layout/PortalLayout";
+
 function MainContent() {
   const { user, loading } = useAuth();
   const getInitialRoute = () => {
@@ -43,15 +45,6 @@ function MainContent() {
   };
 
   const [currentRoute, setCurrentRoute] = useState<string>(getInitialRoute);
-
-  // If user logs in while on landing, redirect to dashboard or admin
-  useEffect(() => {
-    if (user && (currentRoute === "home" || currentRoute === "login" || currentRoute === "register")) {
-      const target = user.role === "ADMIN" ? "admin" : "dashboard";
-      setCurrentRoute(target);
-      if (typeof window !== "undefined") window.location.hash = target;
-    }
-  }, [user]);
 
   // Handle URL hash or direct route
   const navigate = (route: string) => {
@@ -81,74 +74,54 @@ function MainContent() {
     );
   }
 
+  const renderPage = () => {
+    switch (currentRoute) {
+      case "home": return <HomePage onNavigate={navigate} />;
+      case "admin": return <AdminDashboardPage onNavigate={navigate} />;
+      case "how-it-works": return <HowItWorksPage onNavigate={navigate} />;
+      case "categories": return <CategoriesPage onNavigate={navigate} />;
+      case "pricing": return <PricingPage onNavigate={navigate} />;
+      case "about": return <AboutPage onNavigate={navigate} />;
+      case "contact": return <ContactPage onNavigate={navigate} />;
+      case "legal-privacy": return <LegalPrivacyPage onNavigate={navigate} />;
+      case "login": return <LoginPage onNavigate={navigate} />;
+      case "register": return <RegisterPage onNavigate={navigate} />;
+      case "discover": return <MarketplacePage onNavigate={navigate} />;
+      case "dashboard": return <DashboardPage onNavigate={navigate} />;
+      case "eligibility": return <EligibilityPage onNavigate={navigate} />;
+      case "applications": return <ApplicationsPage onNavigate={navigate} />;
+      case "saved": return <SavedPage onNavigate={navigate} />;
+      case "account": return <AccountPage onNavigate={navigate} />;
+      case "billing": return <BillingPage />;
+      case "support": return <SupportPage />;
+      default: return <HomePage onNavigate={navigate} />;
+    }
+  };
+
+  const isPortalRoute = [
+    "dashboard",
+    "discover",
+    "applications",
+    "admin",
+    "account",
+    "eligibility",
+    "saved",
+    "billing",
+  ].includes(currentRoute);
+
+  if (isPortalRoute) {
+    return (
+      <PortalLayout currentRoute={currentRoute} onNavigate={navigate}>
+        {renderPage()}
+      </PortalLayout>
+    );
+  }
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", backgroundColor: "var(--bg-primary)" }}>
       <Navbar currentRoute={currentRoute} onNavigate={navigate} />
-
-      <main style={{ flex: 1 }}>
-        {currentRoute === "home" && <HomePage onNavigate={navigate} />}
-        {currentRoute === "admin" && (
-          user?.role === "ADMIN" ? (
-            <AdminDashboardPage onNavigate={navigate} />
-          ) : (
-            <div className="container" style={{ paddingTop: 64, paddingBottom: 64, display: "flex", justifyContent: "center" }}>
-              <div className="card" style={{ maxWidth: 540, width: "100%", textAlign: "center", padding: "48px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                <Lock size={44} style={{ color: "var(--accent-gold)" }} />
-                <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF" }}>Administrator Authorization Required</h2>
-                <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                  Access to the CARAVAN Operations Portal is restricted to verified administrators under Sentinel RBAC controls.
-                </p>
-                <button type="button" className="btn btn-sm" onClick={() => navigate("home")}>
-                  Return to Platform
-                </button>
-              </div>
-            </div>
-          )
-        )}
-        {currentRoute === "how-it-works" && <HowItWorksPage onNavigate={navigate} />}
-        {currentRoute === "categories" && <CategoriesPage onNavigate={navigate} />}
-        {currentRoute === "pricing" && <PricingPage onNavigate={navigate} />}
-        {currentRoute === "about" && <AboutPage onNavigate={navigate} />}
-        {currentRoute === "contact" && <ContactPage onNavigate={navigate} />}
-        {currentRoute === "legal-privacy" && <LegalPrivacyPage onNavigate={navigate} />}
-        {currentRoute === "login" && <LoginPage onNavigate={navigate} />}
-        {currentRoute === "register" && <RegisterPage onNavigate={navigate} />}
-        {currentRoute === "discover" && <MarketplacePage onNavigate={navigate} />}
-        {/* Customer Authenticated Routes */}
-        {["dashboard", "applications", "eligibility", "saved", "account", "billing"].includes(currentRoute) && !user ? (
-          <div className="container" style={{ paddingTop: 64, paddingBottom: 64, display: "flex", justifyContent: "center" }}>
-            <div className="card" style={{ maxWidth: 540, width: "100%", textAlign: "center", padding: "48px 32px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-              <Lock size={44} style={{ color: "var(--accent-gold)" }} />
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF" }}>Authentication Required</h2>
-              <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                Please sign in to access your organization workspace, applications, and saved programs.
-              </p>
-              <div className="row" style={{ gap: 12 }}>
-                <button type="button" className="btn btn-sm" onClick={() => navigate("login")}>
-                  Sign In
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate("register")}>
-                  Register Organization
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            {currentRoute === "dashboard" && <DashboardPage onNavigate={navigate} />}
-            {currentRoute === "eligibility" && <EligibilityPage onNavigate={navigate} />}
-            {currentRoute === "applications" && <ApplicationsPage onNavigate={navigate} />}
-            {currentRoute === "saved" && <SavedPage onNavigate={navigate} />}
-            {currentRoute === "account" && <AccountPage onNavigate={navigate} />}
-            {currentRoute === "billing" && <BillingPage />}
-          </>
-        )}
-        {currentRoute === "support" && <SupportPage />}
-      </main>
-
+      <main style={{ flex: 1 }}>{renderPage()}</main>
       <Footer onNavigate={navigate} />
-
-      {/* Mobile Bottom Navigation Bar (Screen 12 in Reference) */}
       <nav className="mobile-bottom-nav">
         {user ? (
           <>
@@ -184,16 +157,6 @@ function MainContent() {
               <User size={18} />
               <span>Profile</span>
             </button>
-            {user.role === "ADMIN" && (
-              <button
-                type="button"
-                className={`mobile-nav-item ${currentRoute === "admin" ? "active" : ""}`}
-                onClick={() => navigate("admin")}
-              >
-                <ShieldCheck size={18} />
-                <span>Admin</span>
-              </button>
-            )}
           </>
         ) : (
           <>

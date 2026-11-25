@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 
@@ -14,9 +15,39 @@ from app.db.models import (
     OrganizationRecord,
     FundingOpportunityRecord,
     ApplicationRecord,
+    AuditLogRecord,
+    utcnow,
 )
+from app.services.discovery_service import DiscoveryEngine
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Operations"])
+
+
+class ReviewDecisionRequest(BaseModel):
+    notes: Optional[str] = ""
+    reason: Optional[str] = ""
+
+
+class IngestOpportunityRequest(BaseModel):
+    title: str
+    provider: str
+    official_source_url: str
+    funding_type: str = "GRANT"
+    amount_min: float = 0.0
+    amount_max: float = 0.0
+    currency: str = "USD"
+    amount_display: str = "Amount varies"
+    geographic_eligibility: str = "Nigeria / West Africa"
+    applicant_eligibility: str = "Registered business entity"
+    industry_sector: str = "Multi-Sector"
+    application_requirements: List[str] = Field(default_factory=list)
+    is_rolling: bool = False
+    source_name: str = "Manual Admin Staging"
+    verification_evidence: Optional[Dict[str, Any]] = None
+
+
+class UpdateUserRoleRequest(BaseModel):
+    role: str
 
 
 @router.get("/telemetry")
@@ -30,7 +61,13 @@ def api_admin_telemetry(
     total_apps = db.query(func.count(ApplicationRecord.application_id)).scalar() or 0
     total_opps = (
         db.query(func.count(FundingOpportunityRecord.opportunity_id))
-        .filter(FundingOpportunityRecord.verification_status == "VERIFIED")
+        .filter(FundingOpportunityRecord.verification_status.in_(["VERIFIED", "VERIFIED_OPEN"]))
+        .scalar()
+        or 0
+    )
+    pending_queue_count = (
+        db.query(func.count(FundingOpportunityRecord.opportunity_id))
+        .filter(FundingOpportunityRecord.publication_status == "PENDING_REVIEW")
         .scalar()
         or 0
     )
@@ -107,6 +144,158 @@ def api_admin_telemetry(
         "total_organizations": total_orgs,
         "total_applications": total_apps,
         "total_opportunities": total_opps,
+        "pending_review_count": pending_queue_count,
         "applications": recent_apps,
         "users": users_list,
     }
+
+
+@router.get("/opportunities/queue")
+def api_get_opportunity_queue(
+    limit: int = 50,
+    offset: int = 0,
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Retrieve items from the discovery review queue."""
+    items = DiscoveryEngine.get_review_queue(db, limit=limit, offset=offset)
+    return {"total": len(items), "queue": items}
+
+
+@router.post("/opportunities/ingest")
+def api_ingest_opportunity(
+    body: IngestOpportunityRequest,
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:write")),
+    db: Session = Depends(get_db),
+):
+    """Ingest a candidate opportunity into the review queue."""
+    payload = body.dict()
+    res = DiscoveryEngine.ingest_discovered_opportunity(db, payload, discovered_by=f"USER:{principal.user_id}")
+    return res
+
+
+@router.post("/opportunities/{opportunity_id}/approve")
+def api_approve_opportunity(
+    opportunity_id: str,
+    body: ReviewDecisionRequest,
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:publish")),
+    db: Session = Depends(get_db),
+):
+    """Approve and publish a pending funding opportunity."""
+    res = DiscoveryEngine.approve_opportunity(
+        db,
+        opportunity_id=opportunity_id,
+        reviewer_id=principal.user_id,
+        reviewer_role=principal.role,
+        notes=body.notes or "Approved via Admin Console",
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=res.get("error"))
+    return res
+
+
+@router.post("/opportunities/{opportunity_id}/reject")
+def api_reject_opportunity(
+    opportunity_id: str,
+    body: ReviewDecisionRequest,
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Reject and archive a candidate opportunity."""
+    res = DiscoveryEngine.reject_opportunity(
+        db,
+        opportunity_id=opportunity_id,
+        reviewer_id=principal.user_id,
+        reviewer_role=principal.role,
+        reason=body.reason or "Does not meet verification or institutional criteria.",
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=res.get("error"))
+    return res
+
+
+@router.post("/opportunities/recheck-deadlines")
+def api_recheck_deadlines(
+    principal: CaravanPrincipal = Depends(require_permission("admin:write")),
+    db: Session = Depends(get_db),
+):
+    """Audit and expire opportunities that have passed their deadline."""
+    res = DiscoveryEngine.audit_and_recheck_deadlines(db)
+    return res
+
+
+@router.patch("/users/{user_id}/role")
+def api_update_user_role(
+    user_id: str,
+    body: UpdateUserRoleRequest,
+    principal: CaravanPrincipal = Depends(require_permission("roles:manage")),
+    db: Session = Depends(get_db),
+):
+    """Update a user's role, strictly guarded by roles:manage permission."""
+    valid_roles = {
+        "CUSTOMER",
+        "ORGANIZATION_ADMIN",
+        "SUPPORT",
+        "OPPORTUNITY_REVIEWER",
+        "PLATFORM_ADMIN",
+        "SUPER_ADMIN",
+    }
+    if body.role.upper() not in valid_roles:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Must be one of: {', '.join(sorted(valid_roles))}",
+        )
+
+    target_user = db.get(UserRecord, user_id)
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    old_role = target_user.role
+    target_user.role = body.role.upper()
+
+    audit = AuditLogRecord(
+        actor=principal.user_id,
+        action="USER_ROLE_CHANGED",
+        resource=f"user:{user_id}",
+        outcome="SUCCESS",
+        details={"previous_role": old_role, "new_role": target_user.role},
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(target_user)
+
+    return {
+        "success": True,
+        "user_id": target_user.user_id,
+        "email": target_user.email,
+        "role": target_user.role,
+    }
+
+
+@router.get("/audit-logs")
+def api_get_audit_logs(
+    limit: int = 50,
+    offset: int = 0,
+    principal: CaravanPrincipal = Depends(require_permission("admin:read")),
+    db: Session = Depends(get_db),
+):
+    """Retrieve platform operational audit logs."""
+    logs = (
+        db.query(AuditLogRecord)
+        .order_by(AuditLogRecord.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        {
+            "log_id": l.log_id,
+            "actor": l.actor,
+            "action": l.action,
+            "resource": l.resource,
+            "outcome": l.outcome,
+            "details": l.details,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        }
+        for l in logs
+    ]

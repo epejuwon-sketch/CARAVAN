@@ -22,9 +22,11 @@ class CaravanSettings(BaseSettings):
     CARAVAN_PORT: int = 8000
     CARAVAN_HOST: str = "0.0.0.0"
     CARAVAN_CORS_ORIGINS: List[str] = [
+        "https://caravan-juwon2.vercel.app",
         "https://caravan-platform.vercel.app",
         "https://caravanfunding.com",
         "http://localhost:5173",
+        "http://localhost:5174",
         "http://localhost:3000",
     ]
 

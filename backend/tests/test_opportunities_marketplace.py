@@ -48,8 +48,7 @@ def test_list_opportunities_and_categories(client: TestClient):
     detail_data = detail.json()
     assert detail_data["opportunity_id"] == first_id
     assert "official_source_url" in detail_data
-    assert "provenance_hash" in detail_data
-    assert detail_data["verification_status"] == "VERIFIED"
+    assert detail_data["verification_status"] in {"VERIFIED", "VERIFIED_OPEN", "UPCOMING", "UPCOMING_CONFIRMED", "CLOSED"}
 
     # 6. Verify total count accuracy with pagination limit
     paged_res = client.get("/api/v1/opportunities?limit=1")

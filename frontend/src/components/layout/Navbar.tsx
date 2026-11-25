@@ -177,7 +177,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
               </button>
 
               {/* Admin Portal Tab */}
-              {user.role === "ADMIN" && (
+              {["ADMIN", "SUPER_ADMIN", "PLATFORM_ADMIN", "OPPORTUNITY_REVIEWER"].includes(user.role) && (
                 <button
                   type="button"
                   className={`tab-btn ${currentRoute === "admin" ? "active" : ""}`}
@@ -437,7 +437,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentRoute, onNavigate }) => {
                 Subscription &amp; Billing
               </button>
 
-              {user.role === "ADMIN" && (
+              {["ADMIN", "SUPER_ADMIN", "PLATFORM_ADMIN", "OPPORTUNITY_REVIEWER"].includes(user.role) && (
                 <button
                   type="button"
                   className={`tab-btn ${currentRoute === "admin" ? "active" : ""}`}

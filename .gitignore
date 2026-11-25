@@ -19,6 +19,8 @@ ENV/
 htmlcov/
 *.db
 *.sqlite*
+backend/data/
+data/
 
 # Node & Frontend
 node_modules/
