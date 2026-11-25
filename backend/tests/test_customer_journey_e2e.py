@@ -118,6 +118,22 @@ def test_complete_two_tenant_customer_journeys(client: TestClient):
     grow = next(o for o in opps if "GROW Accelerator" in o["title"])
     assert "application fee of ₦25,000" in grow["important_conditions"]
 
+    # Search by keyword
+    search_res = client.get("/api/v1/opportunities?query=Women")
+    assert search_res.status_code == 200
+    assert any("Women" in o["title"] for o in search_res.json()["opportunities"])
+
+    # Filter by funding type (LOAN)
+    loan_res = client.get("/api/v1/opportunities?funding_type=LOAN")
+    assert loan_res.status_code == 200
+    for o in loan_res.json()["opportunities"]:
+        assert o["funding_type"] == "LOAN"
+
+    # Detail view
+    detail_res = client.get(f"/api/v1/opportunities/{grow['opportunity_id']}")
+    assert detail_res.status_code == 200
+    assert detail_res.json()["title"] == grow["title"]
+
     # =========================================================================
     # STEP 6: Eligibility Matching for Account 1 (Amaka - Female, ₦25m, Lagos, CAC)
     # =========================================================================
@@ -287,3 +303,43 @@ def test_complete_two_tenant_customer_journeys(client: TestClient):
     )
     assert tkt.status_code == 201
     assert tkt.json()["status"] == "OPEN"
+
+    # =========================================================================
+    # STEP 16: Account Logout & Return (Session Persistence)
+    # =========================================================================
+    # Simulate client clearing local credentials and re-authenticating
+    login1_res = client.post(
+        "/api/v1/auth/login",
+        json={"email": "amaka@amakaagro.ng", "password": "SecurePassword123!"},
+    )
+    assert login1_res.status_code == 200
+    new_token1 = login1_res.json()["access_token"]
+    new_headers1 = {"Authorization": f"Bearer {new_token1}"}
+
+    # Verify profile and organization state persists
+    me1 = client.get("/api/v1/auth/me", headers=new_headers1).json()
+    assert me1["email"] == "amaka@amakaagro.ng"
+    assert me1["organization"]["name"] == "Amaka Agro Ventures Ltd"
+    assert me1["organization"]["annual_revenue_ngn"] == 25000000.0
+    assert me1["organization"]["female_led"] is True
+
+    # Verify application workspace and uploaded documents persist across sessions
+    app_recheck = client.get(f"/api/v1/applications/{app1_id}", headers=new_headers1).json()
+    assert app_recheck["application_id"] == app1_id
+    assert app_recheck["status"] == "SUBMITTED"
+    assert len(app_recheck["documents"]) == 1
+    assert app_recheck["documents"][0]["doc_id"] == doc1_id
+
+    # =========================================================================
+    # STEP 17: Strict Multi-Tenant Isolation Enforcement
+    # =========================================================================
+    # Account 2 attempting to view Account 1's application -> 404
+    assert client.get(f"/api/v1/applications/{app1_id}", headers=headers2).status_code == 404
+    # Account 2 attempting to download Account 1's private document -> 404
+    assert client.get(f"/api/v1/applications/{app1_id}/documents/{doc1_id}/download", headers=headers2).status_code == 404
+    # Account 2 attempting to mutate Account 1's checklist -> 404
+    assert client.patch(f"/api/v1/applications/{app1_id}", headers=headers2, json={"status": "REJECTED"}).status_code == 404
+    # Account 2 attempting to view Account 1's saved list -> isolated
+    saved2_final = client.get("/api/v1/saved", headers=headers2).json()["saved"]
+    assert all(s["opportunity_id"] != grow["opportunity_id"] for s in saved2_final)
+

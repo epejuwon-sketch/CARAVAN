@@ -46,7 +46,7 @@ def compute_live_status(r: FundingOpportunityRecord, now: Optional[datetime] = N
         now = now.replace(tzinfo=timezone.utc)
     
     explicit_status = (getattr(r, "opportunity_status", None) or getattr(r, "verification_status", "OPEN")).upper()
-    if explicit_status in ("CLOSED", "SUSPENDED", "PAUSED", "REJECTED"):
+    if explicit_status in ("CLOSED", "SUSPENDED", "PAUSED", "REJECTED", "UPCOMING", "NEEDS_VERIFICATION"):
         return explicit_status
     if getattr(r, "is_rolling", False):
         return "ROLLING"
@@ -97,6 +97,7 @@ def serialize_opportunity(r: FundingOpportunityRecord, detail: bool = False) -> 
         "registration_required": getattr(r, "registration_required", True),
         "application_method": getattr(r, "application_method", "ONLINE_PORTAL"),
         "opportunity_status": live_status,
+        "live_status": live_status,
         "important_conditions": getattr(r, "important_conditions", ""),
         "verification_status": r.verification_status,
         "verified_at": r.verified_at.isoformat() if r.verified_at else None,

@@ -73,5 +73,10 @@ def api_me(principal: CaravanPrincipal = Depends(get_current_principal), db: Ses
             "state_location": org.state_location if org else "Abuja (FCT)",
             "sector": org.sector if org else "Technology",
             "stage": org.stage if org else "SEED",
+            "annual_revenue_ngn": getattr(org, "annual_revenue_ngn", 0.0),
+            "cac_registered": getattr(org, "cac_registered", True),
+            "years_in_operation": getattr(org, "years_in_operation", 1),
+            "female_led": getattr(org, "female_led", False),
+            "youth_led": getattr(org, "youth_led", True),
         } if org else None,
     }
