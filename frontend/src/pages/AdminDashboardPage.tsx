@@ -35,6 +35,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
 
   // Verification center state (Screen 8)
   const [verificationFilter, setVerificationFilter] = useState<"pending" | "approved" | "rejected">("pending");
+  const [reviewQueue, setReviewQueue] = useState<any[]>([]);
+  const [ingestModalOpen, setIngestModalOpen] = useState(false);
+  const [ingestTitle, setIngestTitle] = useState("");
+  const [ingestProvider, setIngestProvider] = useState("");
+  const [ingestUrl, setIngestUrl] = useState("");
+  const [ingestAmount, setIngestAmount] = useState("");
+  const [ingestType, setIngestType] = useState("GRANT");
   const [userSearch, setUserSearch] = useState("");
 
   // System settings state (Screen 11)
@@ -47,12 +54,64 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
     setLoading(true);
     setErrorMsg("");
     try {
-      const data = await apiFetch<any>("/api/v1/admin/telemetry");
+      const [data, queueData] = await Promise.all([
+        apiFetch<any>("/api/v1/admin/telemetry"),
+        apiFetch<any>("/api/v1/admin/opportunities/queue").catch(() => ({ queue: [] })),
+      ]);
       setTelemetry(data);
+      setReviewQueue(queueData.queue || []);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to load admin telemetry.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleApproveOpp(oppId: string) {
+    try {
+      await apiFetch(`/api/v1/admin/opportunities/${oppId}/approve`, {
+        method: "POST",
+        body: JSON.stringify({ notes: "Verified and published via Admin Verification Centre" }),
+      });
+      loadAdminTelemetry();
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    }
+  }
+
+  async function handleRejectOpp(oppId: string) {
+    try {
+      await apiFetch(`/api/v1/admin/opportunities/${oppId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "Criteria unverified or unofficial source link" }),
+      });
+      loadAdminTelemetry();
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    }
+  }
+
+  async function handleIngestOpp(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await apiFetch("/api/v1/admin/opportunities/ingest", {
+        method: "POST",
+        body: JSON.stringify({
+          title: ingestTitle,
+          provider: ingestProvider,
+          official_source_url: ingestUrl,
+          amount_display: ingestAmount || "Undisclosed",
+          funding_type: ingestType,
+        }),
+      });
+      setIngestModalOpen(false);
+      setIngestTitle("");
+      setIngestProvider("");
+      setIngestUrl("");
+      setIngestAmount("");
+      loadAdminTelemetry();
+    } catch (err: any) {
+      setErrorMsg(err.message);
     }
   }
 
@@ -246,33 +305,140 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({ onNaviga
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div className="row-between" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Verification Centre</h2>
-              <p className="muted" style={{ fontSize: 13 }}>Verify and approve registered applicant ventures and documents.</p>
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Funding Discovery &amp; Verification Centre</h2>
+              <p className="muted" style={{ fontSize: 13 }}>Audit, verify, and approve staged funding opportunities before customer marketplace publication.</p>
             </div>
 
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setIngestModalOpen(!ingestModalOpen)}
+              >
+                <Plus size={14} /> Ingest Staged Opportunity
+              </button>
               <button
                 type="button"
                 className={`tab-btn ${verificationFilter === "pending" ? "active" : ""}`}
                 onClick={() => setVerificationFilter("pending")}
               >
-                Pending (0)
+                Pending Review ({reviewQueue.length})
               </button>
               <button
                 type="button"
                 className={`tab-btn ${verificationFilter === "approved" ? "active" : ""}`}
                 onClick={() => setVerificationFilter("approved")}
               >
-                Approved ({totalUsers})
+                Published Facilities ({totalOpps})
               </button>
             </div>
           </div>
 
-          <EmptyState
-            icon={<CheckCircle2 size={36} />}
-            title="No pending applicant verifications"
-            description="All registered applicant accounts and corporate profiles have been validated against official registry standards."
-          />
+          {/* Ingest Candidate Drawer / Card Form */}
+          {ingestModalOpen && (
+            <form
+              onSubmit={handleIngestOpp}
+              className="card"
+              style={{
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-gold)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 14,
+                padding: 20,
+              }}
+            >
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--accent-gold-bright)" }}>
+                Stage Candidate Institutional Opportunity
+              </h3>
+              <div className="grid-2" style={{ gap: 12 }}>
+                <input
+                  className="input"
+                  placeholder="Program Title *"
+                  value={ingestTitle}
+                  onChange={(e) => setIngestTitle(e.target.value)}
+                  required
+                />
+                <input
+                  className="input"
+                  placeholder="Funding Provider *"
+                  value={ingestProvider}
+                  onChange={(e) => setIngestProvider(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="grid-2" style={{ gap: 12 }}>
+                <input
+                  className="input"
+                  placeholder="Official Primary Source URL *"
+                  value={ingestUrl}
+                  onChange={(e) => setIngestUrl(e.target.value)}
+                  required
+                />
+                <input
+                  className="input"
+                  placeholder="Amount Display (e.g. $50,000 Grant)"
+                  value={ingestAmount}
+                  onChange={(e) => setIngestAmount(e.target.value)}
+                />
+              </div>
+              <div className="row" style={{ gap: 10 }}>
+                <button type="submit" className="btn btn-sm">Stage for Verification</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIngestModalOpen(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
+
+          {reviewQueue.length === 0 ? (
+            <EmptyState
+              icon={<CheckCircle2 size={36} />}
+              title="Verification review queue is clear"
+              description="All candidate opportunities have been cryptographically verified, audited against primary sources, and published to the customer marketplace."
+            />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {reviewQueue.map((opp) => (
+                <div
+                  key={opp.opportunity_id}
+                  className="card"
+                  style={{
+                    backgroundColor: "var(--bg-card)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    padding: 18,
+                  }}
+                >
+                  <div className="row-between" style={{ flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <strong style={{ fontSize: 15, color: "#FFFFFF" }}>{opp.title}</strong>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {opp.provider} · {opp.amount_display} · <a href={opp.official_source_url} target="_blank" rel="noreferrer" className="gold-text">Primary Source Registry</a>
+                      </div>
+                    </div>
+                    <span className="pill pill-gold">PENDING REVIEW</span>
+                  </div>
+
+                  <div className="row" style={{ gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => handleApproveOpp(opp.opportunity_id)}
+                    >
+                      <CheckCircle2 size={13} /> Approve &amp; Publish
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleRejectOpp(opp.opportunity_id)}
+                    >
+                      <XCircle size={13} /> Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

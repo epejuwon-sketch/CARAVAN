@@ -48,13 +48,14 @@ def api_assess_opportunity_body(
 
 @router.get("/recommendations")
 def api_get_recommendations(
-    limit: int = Query(default=20, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=100),
     principal: CaravanPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
-    recommendations = get_recommendations_for_org(
+    result = get_recommendations_for_org(
         db,
         org_id=principal.organization_id,
         limit=limit,
     )
-    return {"total": len(recommendations), "recommendations": recommendations}
+    result["total"] = len(result["recommendations"])
+    return result

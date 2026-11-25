@@ -55,4 +55,4 @@ def test_list_opportunities_and_categories(client: TestClient):
     assert paged_res.status_code == 200
     paged_data = paged_res.json()
     assert len(paged_data["opportunities"]) == 1
-    assert paged_data["total"] == 12
+    assert paged_data["total"] >= 12

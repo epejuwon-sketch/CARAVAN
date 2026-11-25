@@ -54,8 +54,13 @@ class OrganizationRecord(Base):
     sector = Column(String(120), default="Technology", nullable=False)
     stage = Column(String(64), default="SEED", nullable=False)  # IDEA, SEED, EARLY_GROWTH, EXPANSION, MATURE
     annual_revenue_usd = Column(Float, default=0.0, nullable=False)
+    annual_revenue_ngn = Column(Float, default=0.0, nullable=False)
     funding_goals = Column(Text, default="", nullable=False)
     team_size = Column(Integer, default=5, nullable=False)
+    cac_registered = Column(Boolean, default=True, nullable=False)
+    years_in_operation = Column(Integer, default=1, nullable=False)
+    female_led = Column(Boolean, default=False, nullable=False)
+    youth_led = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -88,6 +93,20 @@ class FundingOpportunityRecord(Base):
     is_rolling = Column(Boolean, default=False, nullable=False)
     
     official_source_url = Column(String(500), nullable=False)
+    official_application_url = Column(String(500), nullable=True)
+    supporting_source_urls = Column(JSON, default=list, nullable=False)
+    eligible_applicant_types = Column(JSON, default=list, nullable=False)
+    eligible_countries = Column(JSON, default=list, nullable=False)
+    eligible_states = Column(JSON, default=list, nullable=False)
+    eligible_sectors = Column(JSON, default=list, nullable=False)
+    funding_structure = Column(String(120), default="DIRECT_DISBURSEMENT", nullable=False)
+    business_stage = Column(String(120), default="ALL_STAGES", nullable=False)
+    age_restrictions = Column(String(120), default="NO_RESTRICTION", nullable=False)
+    registration_required = Column(Boolean, default=True, nullable=False)
+    application_method = Column(String(120), default="ONLINE_PORTAL", nullable=False)
+    opportunity_status = Column(String(64), default="OPEN", nullable=False, index=True)
+    important_conditions = Column(Text, default="", nullable=False)
+
     verification_status = Column(String(32), default="VERIFIED", nullable=False, index=True)  # DISCOVERED, PENDING_REVIEW, VERIFIED, UNVERIFIED, REJECTED, UPCOMING, OPEN, CLOSED, EXPIRED, SUSPENDED
     verified_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     source_name = Column(String(160), default="Direct Official Registry", nullable=False)

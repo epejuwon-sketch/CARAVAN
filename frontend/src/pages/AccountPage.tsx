@@ -17,6 +17,11 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
   const [stateLocation, setStateLocation] = useState("Abuja (FCT)");
   const [sector, setSector] = useState("Technology");
   const [stage, setStage] = useState("SEED");
+  const [revenueNgn, setRevenueNgn] = useState<number>(0);
+  const [cacRegistered, setCacRegistered] = useState(true);
+  const [yearsInOperation, setYearsInOperation] = useState<number>(1);
+  const [femaleLed, setFemaleLed] = useState(false);
+  const [youthLed, setYouthLed] = useState(true);
   const [goals, setGoals] = useState("");
   const [msg, setMsg] = useState("");
 
@@ -30,6 +35,11 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
       setStateLocation(res.state_location);
       setSector(res.sector);
       setStage(res.stage);
+      setRevenueNgn(res.annual_revenue_ngn || 0);
+      setCacRegistered(res.cac_registered ?? true);
+      setYearsInOperation(res.years_in_operation || 1);
+      setFemaleLed(Boolean(res.female_led));
+      setYouthLed(res.youth_led ?? true);
       setGoals(res.funding_goals || "");
     } catch {
       // ignore
@@ -54,6 +64,11 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
           state_location: stateLocation,
           sector,
           stage,
+          annual_revenue_ngn: Number(revenueNgn),
+          cac_registered: cacRegistered,
+          years_in_operation: Number(yearsInOperation),
+          female_led: femaleLed,
+          youth_led: youthLed,
           funding_goals: goals,
         }),
       });
@@ -158,6 +173,72 @@ export const AccountPage: React.FC<AccountPageProps> = () => {
                 <option value="EXPANSION">Expansion / Scale</option>
               </select>
             </div>
+          </div>
+
+          <div className="grid-2" style={{ gap: 16 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Annual Revenue (NGN ₦)</label>
+              <input
+                type="number"
+                className="input"
+                value={revenueNgn}
+                onChange={(e) => setRevenueNgn(Number(e.target.value))}
+                placeholder="e.g. 25000000"
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label className="form-label">Operating History (Years in Operation)</label>
+              <input
+                type="number"
+                min={0}
+                className="input"
+                value={yearsInOperation}
+                onChange={(e) => setYearsInOperation(Number(e.target.value))}
+                placeholder="e.g. 3"
+              />
+            </div>
+          </div>
+
+          <div
+            className="card"
+            style={{
+              backgroundColor: "var(--bg-secondary)",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 16,
+              padding: 16,
+            }}
+          >
+            <label className="row" style={{ gap: 8, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={cacRegistered}
+                onChange={(e) => setCacRegistered(e.target.checked)}
+                style={{ accentColor: "var(--accent-gold)" }}
+              />
+              <span>CAC Formally Registered Entity</span>
+            </label>
+
+            <label className="row" style={{ gap: 8, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={femaleLed}
+                onChange={(e) => setFemaleLed(e.target.checked)}
+                style={{ accentColor: "var(--accent-gold)" }}
+              />
+              <span>Women-Led / Female-Founded (51%+ Equity)</span>
+            </label>
+
+            <label className="row" style={{ gap: 8, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={youthLed}
+                onChange={(e) => setYouthLed(e.target.checked)}
+                style={{ accentColor: "var(--accent-gold)" }}
+              />
+              <span>Youth-Led (Founders aged 18–35)</span>
+            </label>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

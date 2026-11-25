@@ -32,10 +32,26 @@ export interface FundingOpportunity {
   deadline_at?: string;
   is_rolling: boolean;
   official_source_url: string;
-  verification_status: "VERIFIED" | "UNVERIFIED" | "EXPIRED" | "CLOSED";
+  official_application_url?: string;
+  supporting_source_urls?: string[];
+  eligible_applicant_types?: string[];
+  eligible_countries?: string[];
+  eligible_states?: string[];
+  eligible_sectors?: string[];
+  funding_structure?: string;
+  business_stage?: string;
+  age_restrictions?: string;
+  registration_required?: boolean;
+  application_method?: string;
+  opportunity_status?: string;
+  important_conditions?: string;
+  verification_status: "VERIFIED" | "VERIFIED_OPEN" | "UNVERIFIED" | "UPCOMING" | "UPCOMING_CONFIRMED" | "EXPIRED" | "CLOSED";
   verified_at: string;
   source_name: string;
   provenance_hash?: string;
+  confidence_score?: number;
+  evidence_completeness?: string;
+  publication_status?: string;
 }
 
 export interface User {
@@ -56,8 +72,13 @@ export interface Organization {
   sector: string;
   stage: string;
   annual_revenue_usd: number;
+  annual_revenue_ngn?: number;
   funding_goals: string;
   team_size: number;
+  cac_registered?: boolean;
+  years_in_operation?: number;
+  female_led?: boolean;
+  youth_led?: boolean;
   team_members: Array<{
     user_id: string;
     email: string;
@@ -87,9 +108,18 @@ export interface EligibilityAssessment {
   opportunity_id: string;
   opportunity_title: string;
   provider: string;
+  funding_type?: string;
+  amount_display?: string;
   match_score: number;
   recommendation_level: "STRONG" | "MODERATE" | "WEAK" | "INELIGIBLE";
-  criteria_breakdown: Record<string, { matched: boolean | string; score: number; reason: string }>;
+  criteria_breakdown: Record<string, any>;
+  is_disqualified?: boolean;
+  disqualifications?: string[];
+  strengths?: string[];
+  missing_requirements?: string[];
+  live_status?: string;
+  official_source_url?: string;
+  official_application_url?: string;
 }
 
 export interface Subscription {

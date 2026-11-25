@@ -110,6 +110,25 @@ def run_migrations():
                 "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS next_verification_at TIMESTAMPTZ",
                 "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_history JSON DEFAULT '[]'",
                 "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS publication_status VARCHAR(32) DEFAULT 'PUBLISHED'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS official_application_url VARCHAR(500)",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS supporting_source_urls JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_applicant_types JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_countries JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_states JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_sectors JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS funding_structure VARCHAR(120) DEFAULT 'DIRECT_DISBURSEMENT'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS business_stage VARCHAR(120) DEFAULT 'ALL_STAGES'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS age_restrictions VARCHAR(120) DEFAULT 'NO_RESTRICTION'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS registration_required BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS application_method VARCHAR(120) DEFAULT 'ONLINE_PORTAL'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS opportunity_status VARCHAR(64) DEFAULT 'OPEN'",
+                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS important_conditions TEXT DEFAULT ''",
+                # caravan_organizations extensions
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS annual_revenue_ngn FLOAT DEFAULT 0.0",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS cac_registered BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS years_in_operation INTEGER DEFAULT 1",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS female_led BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS youth_led BOOLEAN DEFAULT TRUE",
             ]
             for stmt in migration_statements:
                 try:
@@ -129,11 +148,40 @@ def run_migrations():
                 ("next_verification_at", "DATETIME"),
                 ("verification_history", "JSON DEFAULT '[]'"),
                 ("publication_status", "VARCHAR(32) DEFAULT 'PUBLISHED'"),
+                ("official_application_url", "VARCHAR(500)"),
+                ("supporting_source_urls", "JSON DEFAULT '[]'"),
+                ("eligible_applicant_types", "JSON DEFAULT '[]'"),
+                ("eligible_countries", "JSON DEFAULT '[]'"),
+                ("eligible_states", "JSON DEFAULT '[]'"),
+                ("eligible_sectors", "JSON DEFAULT '[]'"),
+                ("funding_structure", "VARCHAR(120) DEFAULT 'DIRECT_DISBURSEMENT'"),
+                ("business_stage", "VARCHAR(120) DEFAULT 'ALL_STAGES'"),
+                ("age_restrictions", "VARCHAR(120) DEFAULT 'NO_RESTRICTION'"),
+                ("registration_required", "BOOLEAN DEFAULT 1"),
+                ("application_method", "VARCHAR(120) DEFAULT 'ONLINE_PORTAL'"),
+                ("opportunity_status", "VARCHAR(64) DEFAULT 'OPEN'"),
+                ("important_conditions", "TEXT DEFAULT ''"),
             ]
             for col_name, col_def in sqlite_cols:
                 if col_name not in existing_cols:
                     try:
                         conn.execute(text(f"ALTER TABLE caravan_funding_opportunities ADD COLUMN {col_name} {col_def}"))
+                    except Exception:
+                        pass
+
+            org_res = conn.execute(text("PRAGMA table_info(caravan_organizations)")).fetchall()
+            existing_org_cols = {row[1] for row in org_res}
+            sqlite_org_cols = [
+                ("annual_revenue_ngn", "FLOAT DEFAULT 0.0"),
+                ("cac_registered", "BOOLEAN DEFAULT 1"),
+                ("years_in_operation", "INTEGER DEFAULT 1"),
+                ("female_led", "BOOLEAN DEFAULT 0"),
+                ("youth_led", "BOOLEAN DEFAULT 1"),
+            ]
+            for col_name, col_def in sqlite_org_cols:
+                if col_name not in existing_org_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE caravan_organizations ADD COLUMN {col_name} {col_def}"))
                     except Exception:
                         pass
 

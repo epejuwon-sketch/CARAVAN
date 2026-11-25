@@ -79,6 +79,7 @@ def api_create_application(
 
 
 @router.patch("/{application_id}")
+@router.put("/{application_id}")
 def api_update_application(
     application_id: str,
     body: UpdateApplicationRequest,

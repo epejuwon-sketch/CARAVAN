@@ -153,7 +153,7 @@ def process_payment_webhook(
         meta = data.get("meta", {})
         org_id = meta.get("org_id", "org_demo")
         tier = meta.get("tier", "STARTER")
-        tx_status = "SUCCESSFUL" if data.get("status") == "successful" else "FAILED"
+        tx_status = "SUCCESSFUL" if (data.get("status") in ("successful", "success") or event in ("charge.completed", "charge.success")) else "FAILED"
 
     elif provider_clean == "PAYSTACK":
         event = payload.get("event")
@@ -164,7 +164,7 @@ def process_payment_webhook(
         meta = data.get("metadata", {})
         org_id = meta.get("org_id", "org_demo")
         tier = meta.get("tier", "STARTER")
-        tx_status = "SUCCESSFUL" if data.get("status") == "success" else "FAILED"
+        tx_status = "SUCCESSFUL" if (data.get("status") in ("success", "successful") or event in ("charge.success", "charge.completed")) else "FAILED"
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported payment provider '{provider}'.")
 

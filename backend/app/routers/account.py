@@ -23,8 +23,13 @@ class UpdateOrgRequest(BaseModel):
     sector: Optional[str] = None
     stage: Optional[str] = None
     annual_revenue_usd: Optional[float] = None
+    annual_revenue_ngn: Optional[float] = None
     funding_goals: Optional[str] = None
     team_size: Optional[int] = None
+    cac_registered: Optional[bool] = None
+    years_in_operation: Optional[int] = None
+    female_led: Optional[bool] = None
+    youth_led: Optional[bool] = None
 
 
 @router.get("/organization")
@@ -51,8 +56,13 @@ def api_get_organization(
         "sector": org.sector,
         "stage": org.stage,
         "annual_revenue_usd": org.annual_revenue_usd,
+        "annual_revenue_ngn": getattr(org, "annual_revenue_ngn", 0.0),
         "funding_goals": org.funding_goals,
         "team_size": org.team_size,
+        "cac_registered": getattr(org, "cac_registered", True),
+        "years_in_operation": getattr(org, "years_in_operation", 1),
+        "female_led": getattr(org, "female_led", False),
+        "youth_led": getattr(org, "youth_led", True),
         "team_members": [
             {
                 "user_id": u.user_id,
@@ -91,10 +101,20 @@ def api_update_organization(
         org.stage = body.stage
     if body.annual_revenue_usd is not None:
         org.annual_revenue_usd = body.annual_revenue_usd
+    if body.annual_revenue_ngn is not None:
+        org.annual_revenue_ngn = body.annual_revenue_ngn
     if body.funding_goals is not None:
         org.funding_goals = body.funding_goals
     if body.team_size is not None:
         org.team_size = body.team_size
+    if body.cac_registered is not None:
+        org.cac_registered = body.cac_registered
+    if body.years_in_operation is not None:
+        org.years_in_operation = body.years_in_operation
+    if body.female_led is not None:
+        org.female_led = body.female_led
+    if body.youth_led is not None:
+        org.youth_led = body.youth_led
 
     db.commit()
     db.refresh(org)
@@ -106,6 +126,11 @@ def api_update_organization(
         "sector": org.sector,
         "stage": org.stage,
         "annual_revenue_usd": org.annual_revenue_usd,
+        "annual_revenue_ngn": getattr(org, "annual_revenue_ngn", 0.0),
         "funding_goals": org.funding_goals,
         "team_size": org.team_size,
+        "cac_registered": getattr(org, "cac_registered", True),
+        "years_in_operation": getattr(org, "years_in_operation", 1),
+        "female_led": getattr(org, "female_led", False),
+        "youth_led": getattr(org, "youth_led", True),
     }
