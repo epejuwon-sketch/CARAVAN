@@ -9,6 +9,20 @@ on:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: caravan
+          POSTGRES_PASSWORD: caravan_secure_pwd_2026
+          POSTGRES_DB: caravan_production
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,7 +39,9 @@ jobs:
           pip install -r requirements.txt pytest
 
       - name: Run full CARAVAN backend test suite
-        run: python -m pytest backend/tests
+        env:
+          TEST_POSTGRES_URL: postgresql://caravan:caravan_secure_pwd_2026@localhost:5432/caravan_production
+        run: python -m pytest backend/tests -v
 
   build-frontend:
     runs-on: ubuntu-latest
