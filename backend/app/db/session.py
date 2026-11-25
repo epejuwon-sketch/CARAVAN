@@ -139,12 +139,12 @@ def run_migrations():
             result = conn.execute(text("PRAGMA table_info(caravan_funding_opportunities)")).fetchall()
             existing_cols = {row[1] for row in result}
             sqlite_cols = [
-                ("source_retrieval_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+                ("source_retrieval_at", "DATETIME"),
                 ("verification_method", "VARCHAR(64) DEFAULT 'MANUAL_REGISTRY_AUDIT'"),
                 ("verification_evidence", "JSON DEFAULT '{}'"),
                 ("confidence_score", "FLOAT DEFAULT 1.0"),
                 ("evidence_completeness", "VARCHAR(32) DEFAULT 'COMPLETE'"),
-                ("last_checked_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+                ("last_checked_at", "DATETIME"),
                 ("next_verification_at", "DATETIME"),
                 ("verification_history", "JSON DEFAULT '[]'"),
                 ("publication_status", "VARCHAR(32) DEFAULT 'PUBLISHED'"),
