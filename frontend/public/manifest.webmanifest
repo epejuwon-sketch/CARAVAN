@@ -1,0 +1,16 @@
+{
+  "name": "CARAVAN Funding Intelligence",
+  "short_name": "CARAVAN",
+  "description": "Institutional Funding Intelligence, Opportunity Matching & Application Operations Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0d14",
+  "theme_color": "#0a0d14",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

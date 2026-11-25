@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caravan-platform"
+version = "1.0.0"
+description = "CARAVAN — Institutional Funding Intelligence, Opportunity Matching & Application Operations Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "CARAVAN Executive Engineering" }]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::starlette.testclient.StarletteDeprecationWarning"
+]
