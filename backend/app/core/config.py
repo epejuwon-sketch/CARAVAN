@@ -57,18 +57,20 @@ class CaravanSettings(BaseSettings):
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> "CaravanSettings":
         if self.CARAVAN_ENV == "production":
+            raw_jwt_key = (self.JWT_SECRET_KEY or "").strip()
             if (
-                not self.JWT_SECRET_KEY
-                or len(self.JWT_SECRET_KEY) < 32
-                or "ephemeral-dev" in self.JWT_SECRET_KEY
+                not raw_jwt_key
+                or len(raw_jwt_key.encode("utf-8")) < 32
+                or "ephemeral-dev" in raw_jwt_key
+                or raw_jwt_key == "change-this-to-a-secure-random-32-character-secret-in-production"
             ):
-                import secrets
-                import logging
-                logging.getLogger("caravan").warning(
-                    "JWT_SECRET_KEY was not explicitly configured in production. "
-                    "Generating a secure runtime 256-bit ephemeral secret key."
+                raise ValueError(
+                    "Production configuration error: JWT_SECRET_KEY must be explicitly configured "
+                    "in the production environment's secret manager with at least 32 bytes (256-bit entropy). "
+                    "Automatic ephemeral generation is disabled to guarantee token continuity across "
+                    "independent serverless instances. Please configure a persistent JWT_SECRET_KEY."
                 )
-                self.JWT_SECRET_KEY = secrets.token_hex(32)
+            # ULTRON bridge remains optional — absence must not prevent CARAVAN standalone customer authentication
             if not self.ULTRON_BRIDGE_API_KEY or len(self.ULTRON_BRIDGE_API_KEY) < 24:
                 import logging
                 logging.getLogger("caravan").info(

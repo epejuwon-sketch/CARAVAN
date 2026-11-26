@@ -205,3 +205,122 @@ def test_admin_route_rbac_protection(client: TestClient):
     assert isinstance(telemetry["applications"], list)
     assert isinstance(telemetry["users"], list)
 
+
+def test_production_jwt_secret_configuration_enforcement(monkeypatch):
+    import pytest
+    from app.core.config import CaravanSettings, get_settings
+
+    # 1. In production, missing or default JWT key must fail safely with an explicit ValueError
+    monkeypatch.setenv("CARAVAN_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    get_settings.cache_clear()
+
+    with pytest.raises(ValueError) as excinfo:
+        CaravanSettings(CARAVAN_ENV="production", JWT_SECRET_KEY="")
+    assert "JWT_SECRET_KEY must be explicitly configured" in str(excinfo.value)
+    assert "Automatic ephemeral generation is disabled" in str(excinfo.value)
+
+    # 2. Key shorter than 32 bytes must be rejected
+    with pytest.raises(ValueError) as excinfo_short:
+        CaravanSettings(CARAVAN_ENV="production", JWT_SECRET_KEY="short-key-less-than-32-bytes")
+    assert "at least 32 bytes" in str(excinfo_short.value)
+
+    # 3. Default dev key must be rejected in production
+    with pytest.raises(ValueError):
+        CaravanSettings(CARAVAN_ENV="production", JWT_SECRET_KEY="caravan-ephemeral-dev-jwt-key-not-for-production")
+
+    # 4. Valid 32+ byte key succeeds in production even with ULTRON_BRIDGE_API_KEY unset (standalone operation)
+    valid_key = "a_very_secure_persistent_key_for_production_32bytes"
+    prod_settings = CaravanSettings(CARAVAN_ENV="production", JWT_SECRET_KEY=valid_key, ULTRON_BRIDGE_API_KEY="")
+    assert prod_settings.JWT_SECRET_KEY == valid_key
+    assert prod_settings.ULTRON_BRIDGE_API_KEY == ""
+
+    get_settings.cache_clear()
+
+
+def test_persistent_jwt_continuity_across_instances_and_restarts(monkeypatch, client: TestClient):
+    """Verify separate serverless instances or restarts using the same configured secret validate existing tokens."""
+    import secrets
+    from app.core.config import get_settings
+    from app.core.security import create_access_token, decode_access_token
+
+    persistent_secret = f"prod-secret-{secrets.token_hex(32)}"
+
+    # Instance 1: Generate token
+    monkeypatch.setenv("JWT_SECRET_KEY", persistent_secret)
+    get_settings.cache_clear()
+
+    token = create_access_token({
+        "sub": "usr_serverless_continuity_1",
+        "org_id": "org_continuity_1",
+        "email": "continuity@caravan.org",
+        "role": "CUSTOMER",
+    })
+
+    # Simulate Instance 2 (or process restart) with the same configured secret
+    get_settings.cache_clear()
+    payload = decode_access_token(token)
+    assert payload["sub"] == "usr_serverless_continuity_1"
+    assert payload["org_id"] == "org_continuity_1"
+    assert payload["email"] == "continuity@caravan.org"
+
+    # Verify authenticated request succeeds on the application
+    res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200
+    assert res.json()["user_id"] == "usr_serverless_continuity_1"
+
+
+def test_jwt_incorrect_secret_rejection(monkeypatch, client: TestClient):
+    """Verify tokens signed with an incorrect or rotated secret are safely rejected."""
+    import secrets
+    from app.core.config import get_settings
+    import jwt
+
+    # Token signed with Secret A
+    secret_a = f"secret-a-{secrets.token_hex(32)}"
+    token_from_other_secret = jwt.encode(
+        {"sub": "usr_hacker", "org_id": "org_hacker", "email": "hacker@evil.com", "role": "CUSTOMER"},
+        secret_a,
+        algorithm="HS256",
+    )
+
+    # Server configured with Secret B
+    secret_b = f"secret-b-{secrets.token_hex(32)}"
+    monkeypatch.setenv("JWT_SECRET_KEY", secret_b)
+    get_settings.cache_clear()
+
+    # Protected endpoint must reject token with 401 Unauthorized
+    res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token_from_other_secret}"})
+    assert res.status_code == 401
+    assert "Invalid or expired authentication token" in res.json()["detail"]
+
+
+def test_standalone_customer_login_without_ultron_bridge(monkeypatch, client: TestClient):
+    """Verify that ULTRON bridge absence does NOT prevent customer registration, login, and operations."""
+    monkeypatch.delenv("ULTRON_BRIDGE_API_KEY", raising=False)
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    email = "independent.founder@nigeria.ng"
+    reg = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": "IndependentPass123#",
+            "full_name": "Amaka Eze",
+            "organization_name": "Independent Agro Ltd",
+        },
+    )
+    assert reg.status_code == 201
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "IndependentPass123#"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+
+    me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200
+    assert me.json()["email"] == email
+
