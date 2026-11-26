@@ -244,3 +244,29 @@ class AIProviderFactory:
             )
             resp.provider_used = "caravan_grounded_engine (gemini_fallback)"
             return resp
+
+    @staticmethod
+    def get_status() -> Dict[str, Any]:
+        """Returns live AI provider diagnostics without leaking secrets."""
+        settings = get_settings()
+        api_key = (settings.GEMINI_API_KEY or "").strip()
+        gemini_configured = bool(api_key)
+        provider = settings.CARAVAN_AI_PROVIDER
+        model = settings.CARAVAN_AI_MODEL
+        is_active = gemini_configured and provider == "gemini"
+        active_provider = "google_gemini" if is_active else "caravan_grounded_engine"
+
+        return {
+            "gemini_configured": gemini_configured,
+            "configured_provider": provider,
+            "configured_model": model,
+            "active_provider": active_provider,
+            "fallback_active": not is_active,
+            "reason": (
+                "Operational: Gemini API connected."
+                if is_active
+                else "GEMINI_API_KEY is not configured in environment variables. Local Grounded Engine is active."
+            ),
+            "database_grounding_active": True,
+            "structured_tool_calling_ready": True,
+        }

@@ -11,9 +11,18 @@ Orchestrates the complete 13-step application preparation lifecycle:
 8. Comprehensive application answers drafting
 9. Completeness and consistency validation
 10. Customer review presentation
-11. Explicit customer approval gating
+11. Explicit customer approval gating (tied to exact draft content hash)
 12. Authorised channel submission or guided package preparation
 13. Confirmation record and audit reference logging
+
+Lifecycle statuses strictly separated:
+- DRAFTED
+- INCOMPLETE
+- READY_FOR_REVIEW
+- APPROVED_BY_CUSTOMER
+- PACKAGE_PREPARED
+- SUBMITTED_EXTERNALLY (only if authorized API exists)
+- CONFIRMED_BY_PROVIDER
 """
 
 from __future__ import annotations
@@ -22,7 +31,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -39,6 +48,12 @@ from app.db.models import (
 from app.services.eligibility_service import evaluate_eligibility
 from app.services.document_intelligence import DocumentIntelligence
 from app.services.opportunity_service import compute_live_status
+
+
+def _compute_draft_hash(title: str, exec_summary: str, problem: str, solution: str, sections: Any) -> str:
+    """Computes a SHA-256 tamper-evident hash of the exact draft contents."""
+    content_payload = f"{title}:{exec_summary}:{problem}:{solution}:{str(sections)}"
+    return hashlib.sha256(content_payload.encode("utf-8")).hexdigest()
 
 
 class ApplicationAgent:
@@ -152,9 +167,11 @@ class ApplicationAgent:
             is_complete = False
             validation_notes.append(f"Profile Incomplete: Please provide {', '.join(missing_profile_fields)}.")
 
-        validation_status = "VALIDATED" if is_complete else "INCOMPLETE"
+        # STRICT LIFECYCLE SEPARATION: INCOMPLETE vs READY_FOR_REVIEW
+        validation_status = "READY_FOR_REVIEW" if is_complete else "INCOMPLETE"
+        workflow_status = "READY_FOR_REVIEW" if is_complete else "INCOMPLETE"
 
-        # Step 10: Present Application for Customer Review
+        # Step 10: Present Application for Customer Review or Flag Incomplete
         # Get or create ApplicationRecord
         app_rec = None
         if application_id:
@@ -170,14 +187,26 @@ class ApplicationAgent:
                 application_id=gen_id("app"),
                 organization_id=org_id,
                 opportunity_id=opportunity_id,
-                status="REVIEW",
+                status=workflow_status,
                 checklist_progress=doc_audit.get("matched_documents", []),
                 notes=f"Drafted via CARAVAN Application Agent on {now.strftime('%d %b %Y')}.",
             )
             db.add(app_rec)
             db.flush()
+        else:
+            app_rec.status = workflow_status
+            app_rec.checklist_progress = doc_audit.get("matched_documents", [])
+            app_rec.updated_at = now
 
         # Save ApplicationDraftRecord
+        draft_hash = _compute_draft_hash(
+            title=f"Application: {opp.title}",
+            exec_summary=executive_summary,
+            problem=problem_statement,
+            solution=solution_narrative,
+            sections=sections,
+        )
+
         draft_rec = ApplicationDraftRecord(
             draft_id=gen_id("drf"),
             application_id=app_rec.application_id,
@@ -196,11 +225,18 @@ class ApplicationAgent:
         db.commit()
         db.refresh(draft_rec)
 
+        next_step_message = (
+            "Step 11: Explicit Customer Approval required before external submission package preparation."
+            if is_complete
+            else "Upload missing mandatory documents and complete corporate profile before requesting customer approval."
+        )
+
         return {
-            "step": 10,
-            "status": "PRESENTED_FOR_REVIEW",
+            "step": 10 if is_complete else 7,
+            "status": workflow_status,
             "application_id": app_rec.application_id,
             "draft_id": draft_rec.draft_id,
+            "draft_hash": draft_hash,
             "opportunity_id": opp.opportunity_id,
             "opportunity_title": opp.title,
             "provider": opp.provider,
@@ -219,7 +255,7 @@ class ApplicationAgent:
             "validation_notes": validation_notes,
             "sections": sections,
             "official_portal_url": opp.official_application_url or opp.official_source_url,
-            "next_required_step": "Step 11: Explicit Customer Approval required before external submission.",
+            "next_required_step": next_step_message,
         }
 
     @staticmethod
@@ -229,8 +265,9 @@ class ApplicationAgent:
         user_id: str,
         application_id: str,
         customer_notes: str = "",
+        force_approval_override: bool = False,
     ) -> Dict[str, Any]:
-        """Step 11: Explicit Customer Approval before external submission."""
+        """Step 11: Explicit Customer Approval tied directly to exact draft content hash."""
         app_rec = db.execute(
             select(ApplicationRecord).where(
                 ApplicationRecord.application_id == application_id,
@@ -240,23 +277,63 @@ class ApplicationAgent:
         if not app_rec:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application workspace not found.")
 
-        # Compute tamper-evident approval consent hash
-        now = datetime.now(timezone.utc)
-        consent_payload = f"{org_id}:{user_id}:{application_id}:{now.isoformat()}"
-        approval_hash = hashlib.sha256(consent_payload.encode("utf-8")).hexdigest()
+        # Retrieve the latest draft for this application
+        latest_draft = db.execute(
+            select(ApplicationDraftRecord).where(
+                ApplicationDraftRecord.application_id == application_id,
+                ApplicationDraftRecord.organization_id == org_id,
+            ).order_by(ApplicationDraftRecord.created_at.desc())
+        ).scalars().first()
 
+        if not latest_draft:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No application draft found to approve.")
+
+        # Strict validation: INCOMPLETE drafts cannot be approved without explicit override
+        if latest_draft.validation_status == "INCOMPLETE" and not force_approval_override:
+            missing_reasons = "; ".join(latest_draft.validation_notes) if latest_draft.validation_notes else "Missing requirements"
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Cannot approve application: Application is INCOMPLETE ({missing_reasons}). All mandatory requirements must be satisfied first.",
+            )
+
+        # Compute content hash of the exact draft being approved
+        draft_hash = _compute_draft_hash(
+            title=latest_draft.title,
+            exec_summary=latest_draft.executive_summary,
+            problem=latest_draft.problem_statement,
+            solution=latest_draft.solution_narrative,
+            sections=latest_draft.sections,
+        )
+
+        # Invalidate any prior active approvals for this application
+        prior_approvals = db.execute(
+            select(CopilotApprovalRecord).where(
+                CopilotApprovalRecord.organization_id == org_id,
+                CopilotApprovalRecord.target_id == latest_draft.draft_id,
+                CopilotApprovalRecord.status == "APPROVED",
+            )
+        ).scalars().all()
+        for p in prior_approvals:
+            p.status = "SUPERSEDED"
+
+        now = datetime.now(timezone.utc)
         approval_rec = CopilotApprovalRecord(
             approval_id=gen_id("appr"),
             organization_id=org_id,
             user_id=user_id,
-            target_type="APPLICATION_SUBMISSION",
-            target_id=application_id,
+            target_type="APPLICATION_DRAFT",
+            target_id=latest_draft.draft_id,
             status="APPROVED",
             customer_notes=customer_notes or "Customer explicitly verified all answers and authorized submission.",
-            approval_hash=approval_hash,
+            approval_hash=draft_hash,
             approved_at=now,
         )
         db.add(approval_rec)
+
+        app_rec.status = "APPROVED_BY_CUSTOMER"
+        app_rec.updated_at = now
+        latest_draft.validation_status = "APPROVED_BY_CUSTOMER"
+        latest_draft.updated_at = now
 
         # Audit log
         audit = AuditLogRecord(
@@ -265,7 +342,12 @@ class ApplicationAgent:
             action="CUSTOMER_APPLICATION_APPROVAL_GRANTED",
             resource=f"APPLICATION:{application_id}",
             outcome="SUCCESS",
-            details={"organization_id": org_id, "approval_id": approval_rec.approval_id, "approval_hash": approval_hash},
+            details={
+                "organization_id": org_id,
+                "approval_id": approval_rec.approval_id,
+                "draft_id": latest_draft.draft_id,
+                "approval_hash": draft_hash,
+            },
         )
         db.add(audit)
 
@@ -277,9 +359,10 @@ class ApplicationAgent:
             "status": "APPROVED_BY_CUSTOMER",
             "approval_id": approval_rec.approval_id,
             "application_id": application_id,
-            "approval_hash": approval_hash,
+            "draft_id": latest_draft.draft_id,
+            "approval_hash": draft_hash,
             "approved_at": approval_rec.approved_at.isoformat(),
-            "message": "Explicit customer approval recorded. Application is authorized for external submission.",
+            "message": "Explicit customer approval recorded and tied to exact draft content hash.",
         }
 
     @staticmethod
@@ -291,7 +374,7 @@ class ApplicationAgent:
         approval_id: str,
     ) -> Dict[str, Any]:
         """Steps 12 & 13: Authorized channel submission or guided submission package preparation."""
-        # Enforce Step 11 Approval Gating: Must have valid customer approval!
+        # 1. Enforce Approval Gating & Tenant Ownership
         approval = db.execute(
             select(CopilotApprovalRecord).where(
                 CopilotApprovalRecord.approval_id == approval_id,
@@ -303,7 +386,7 @@ class ApplicationAgent:
         if not approval:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Security Guardrail Enforced: Submission requires explicit customer approval (Step 11). No approval record found.",
+                detail="Security Guardrail Enforced: Submission requires explicit customer approval (Step 11). No valid approval record found.",
             )
 
         app_rec = db.execute(
@@ -315,19 +398,61 @@ class ApplicationAgent:
         if not app_rec:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application record not found.")
 
+        # 2. Retrieve draft and verify approval hash integrity
+        latest_draft = db.execute(
+            select(ApplicationDraftRecord).where(
+                ApplicationDraftRecord.application_id == application_id,
+                ApplicationDraftRecord.organization_id == org_id,
+            ).order_by(ApplicationDraftRecord.created_at.desc())
+        ).scalars().first()
+
+        if not latest_draft:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application draft record not found.")
+
+        if latest_draft.validation_status == "INCOMPLETE":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Security Guardrail Enforced: Cannot submit an INCOMPLETE application.",
+            )
+
+        # Invalidate approval if draft changed after approval was granted
+        current_hash = _compute_draft_hash(
+            title=latest_draft.title,
+            exec_summary=latest_draft.executive_summary,
+            problem=latest_draft.problem_statement,
+            solution=latest_draft.solution_narrative,
+            sections=latest_draft.sections,
+        )
+
+        if approval.approval_hash != current_hash:
+            approval.status = "INVALIDATED_DRAFT_MODIFIED"
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Approval Invalidated: Application draft content was modified after customer approval was granted. New approval required.",
+            )
+
         opp = db.execute(
             select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == app_rec.opportunity_id)
         ).scalar_one_or_none()
 
         now = datetime.now(timezone.utc)
         sub_ref = f"CRV-SUB-{now.strftime('%Y%m%d')}-{gen_id('')[:8].upper()}"
-
         official_portal = opp.official_application_url or opp.official_source_url if opp else "https://caravanfunding.com"
 
-        # Check if opportunity has an automated direct API channel (e.g. ULTRON or direct institutional API)
-        # Most institutional government/DFI portals (BOI, NCDMB, RAPID) require guided customer portal submission
-        submission_channel = "GUIDED_MANUAL_PACKAGE"
-        confirmation_status = "PACKAGE_PREPARED"
+        # 3. Check for genuine external provider API integration:
+        # Institutional Nigerian & African DFIs (Bank of Industry, RAPID, NCDMB, DBN, TEF, ABH) do NOT provide public applicant-submission APIs.
+        # Therefore, we NEVER falsely claim SUBMITTED_EXTERNALLY. We accurately package and record PACKAGE_PREPARED.
+        has_authorized_external_api = False
+
+        if has_authorized_external_api:
+            submission_channel = "AUTHORIZED_API"
+            confirmation_status = "SUBMITTED_EXTERNALLY"
+            app_status = "SUBMITTED_EXTERNALLY"
+        else:
+            submission_channel = "GUIDED_MANUAL_PACKAGE"
+            confirmation_status = "PACKAGE_PREPARED"
+            app_status = "PACKAGE_PREPARED"
 
         confirmation_details = {
             "official_portal_url": official_portal,
@@ -335,6 +460,7 @@ class ApplicationAgent:
             "approval_id": approval.approval_id,
             "approval_hash": approval.approval_hash,
             "prepared_documents_count": len(app_rec.checklist_progress or []),
+            "submission_channel": submission_channel,
             "next_steps": [
                 f"1. Navigate to the verified official portal: {official_portal}",
                 "2. Upload the validated attachments from your CARAVAN Application Workspace.",
@@ -357,16 +483,21 @@ class ApplicationAgent:
         )
         db.add(sub_rec)
 
-        app_rec.status = "SUBMITTED"
+        app_rec.status = app_status
         app_rec.updated_at = now
 
         audit = AuditLogRecord(
             log_id=gen_id("aud"),
             actor=user_id,
-            action="APPLICATION_PACKAGE_SUBMITTED_AND_CONFIRMED",
+            action="APPLICATION_PACKAGE_PREPARED_AND_CONFIRMED",
             resource=f"APPLICATION:{application_id}",
             outcome="SUCCESS",
-            details={"organization_id": org_id, "submission_reference": sub_ref, "status": confirmation_status},
+            details={
+                "organization_id": org_id,
+                "submission_reference": sub_ref,
+                "channel": submission_channel,
+                "status": confirmation_status,
+            },
         )
         db.add(audit)
 
@@ -375,7 +506,7 @@ class ApplicationAgent:
 
         return {
             "step": 13,
-            "status": "COMPLETED",
+            "status": confirmation_status,
             "submission_id": sub_rec.submission_id,
             "application_id": application_id,
             "opportunity_title": opp.title if opp else "",
@@ -383,5 +514,9 @@ class ApplicationAgent:
             "confirmation_status": confirmation_status,
             "official_portal_url": official_portal,
             "details": confirmation_details,
-            "message": "Application preparation workflow completed. Submission reference recorded with tamper-evident audit log.",
+            "message": (
+                "Verified application package prepared for official portal submission. Retain reference for audit tracking."
+                if confirmation_status == "PACKAGE_PREPARED"
+                else "Application submitted externally via authorized provider API."
+            ),
         }
