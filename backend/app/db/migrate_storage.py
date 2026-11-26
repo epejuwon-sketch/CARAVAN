@@ -7,10 +7,11 @@ Guarantees idempotency and never overwrites existing PostgreSQL data.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -58,7 +59,25 @@ def safe_migrate_sqlite_to_postgres(sqlite_path: str | Path, pg_session: Session
                     {"org_id": org_id},
                 ).scalar()
                 if not exists:
-                    # Insert into PostgreSQL
+                    # Parse JSON fields safely if string in sqlite
+                    prev_hist = org_dict.get("previous_funding_history")
+                    if isinstance(prev_hist, str):
+                        try:
+                            prev_hist = json.loads(prev_hist)
+                        except Exception:
+                            prev_hist = []
+                    elif not isinstance(prev_hist, list):
+                        prev_hist = []
+
+                    read_break = org_dict.get("readiness_breakdown")
+                    if isinstance(read_break, str):
+                        try:
+                            read_break = json.loads(read_break)
+                        except Exception:
+                            read_break = {}
+                    elif not isinstance(read_break, dict):
+                        read_break = {}
+
                     pg_session.execute(
                         text("""
                             INSERT INTO caravan_organizations (
@@ -67,14 +86,16 @@ def safe_migrate_sqlite_to_postgres(sqlite_path: str | Path, pg_session: Session
                                 funding_goals, team_size, cac_registered, years_in_operation,
                                 female_led, youth_led, products_services, target_customers,
                                 business_model, growth_objectives, intended_use_of_funds,
-                                readiness_score, created_at, updated_at
+                                previous_funding_history, readiness_score, readiness_breakdown,
+                                created_at, updated_at
                             ) VALUES (
                                 :org_id, :name, :entity_type, :country, :state_location,
                                 :sector, :stage, :annual_revenue_usd, :annual_revenue_ngn,
                                 :funding_goals, :team_size, :cac_registered, :years_in_operation,
                                 :female_led, :youth_led, :products_services, :target_customers,
                                 :business_model, :growth_objectives, :intended_use_of_funds,
-                                :readiness_score, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                                :previous_funding_history, :readiness_score, :readiness_breakdown,
+                                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             )
                         """),
                         {
@@ -98,7 +119,9 @@ def safe_migrate_sqlite_to_postgres(sqlite_path: str | Path, pg_session: Session
                             "business_model": org_dict.get("business_model") or "B2B",
                             "growth_objectives": org_dict.get("growth_objectives") or "",
                             "intended_use_of_funds": org_dict.get("intended_use_of_funds") or "",
+                            "previous_funding_history": json.dumps(prev_hist),
                             "readiness_score": float(org_dict.get("readiness_score") or 0.0),
+                            "readiness_breakdown": json.dumps(read_break),
                         },
                     )
                     migrated_counts["organizations"] += 1
