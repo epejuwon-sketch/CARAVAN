@@ -260,3 +260,127 @@ def test_aurelia_chat_consultation_branding(client: TestClient, registered_custo
     # Response should reference AURELIA or provide structured funding advice
     assert len(content) > 50
     assert "citations" in chat_data
+
+
+def test_aurelia_approval_invalidation_and_tenant_security(client: TestClient, registered_customer: dict):
+    """Test 6: Strict security, tenant isolation, and approval invalidation on profile/draft changes."""
+    headers_a = registered_customer["headers"]
+    org_id_a = registered_customer["user"]["organization_id"]
+
+    opps = client.get("/api/v1/opportunities").json()["opportunities"]
+    opp_id = opps[0]["opportunity_id"]
+
+    # 1. Draft application for Tenant A
+    draft_res = client.post(
+        "/api/v1/copilot/application-agent/draft",
+        json={"opportunity_id": opp_id},
+        headers=headers_a,
+    )
+    assert draft_res.status_code == 201
+    app_id_a = draft_res.json()["application_id"]
+
+    # 2. Grant approval via Admin Override
+    admin_token = create_access_token(
+        data={"sub": "admin_sys", "org_id": "platform_admin_org", "role": "PLATFORM_ADMIN"}
+    )
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    override_res = client.post(
+        "/api/v1/copilot/application-agent/admin-override",
+        json={
+            "application_id": app_id_a,
+            "target_org_id": org_id_a,
+            "override_reason": "Pre-submission compliance waiver",
+        },
+        headers=admin_headers,
+    )
+    assert override_res.status_code == 200
+    approval_id_1 = override_res.json()["approval_id"]
+
+    # 3. Security: Regular customer CANNOT execute admin-override
+    unauth_override = client.post(
+        "/api/v1/copilot/application-agent/admin-override",
+        json={
+            "application_id": app_id_a,
+            "target_org_id": org_id_a,
+            "override_reason": "Malicious override attempt",
+        },
+        headers=headers_a,
+    )
+    assert unauth_override.status_code == 403
+
+    # 4. Approval Invalidation: Material Profile Update invalidates unsubmitted approval
+    profile_update = client.post(
+        f"/api/v1/copilot/journey/{opp_id}/update-profile",
+        json={"fields": {"annual_revenue_ngn": 99000000.0, "target_customers": "New enterprise customer base"}},
+        headers=headers_a,
+    )
+    assert profile_update.status_code == 200
+
+    # Submission with approval_id_1 MUST be rejected now (invalidated due to profile change)
+    submit_attempt_1 = client.post(
+        "/api/v1/copilot/application-agent/submit",
+        json={"application_id": app_id_a, "approval_id": approval_id_1},
+        headers=headers_a,
+    )
+    assert submit_attempt_1.status_code == 403
+
+    # 5. Re-grant approval
+    override_res_2 = client.post(
+        "/api/v1/copilot/application-agent/admin-override",
+        json={
+            "application_id": app_id_a,
+            "target_org_id": org_id_a,
+            "override_reason": "Updated profile waiver",
+        },
+        headers=admin_headers,
+    )
+    assert override_res_2.status_code == 200
+    approval_id_2 = override_res_2.json()["approval_id"]
+
+    # 6. Approval Invalidation: Generating a NEW draft supersedes the old approval
+    new_draft_res = client.post(
+        "/api/v1/copilot/application-agent/draft",
+        json={"opportunity_id": opp_id, "application_id": app_id_a},
+        headers=headers_a,
+    )
+    assert new_draft_res.status_code == 201
+
+    submit_attempt_2 = client.post(
+        "/api/v1/copilot/application-agent/submit",
+        json={"application_id": app_id_a, "approval_id": approval_id_2},
+        headers=headers_a,
+    )
+    assert submit_attempt_2.status_code == 403
+
+    # 7. Multi-Tenant Cross-Access Isolation
+    # Register Tenant B
+    reg_b = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "tenant_b_founder@caravan-test.africa",
+            "password": "TenantBPassword2026!",
+            "full_name": "Tenant B User",
+            "organization_name": "Delta Marine Logistics",
+            "entity_type": "STARTUP",
+            "country": "Nigeria",
+        },
+    )
+    token_b = reg_b.json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    # Tenant B attempts to approve Tenant A's application -> 404
+    cross_approve = client.post(
+        "/api/v1/copilot/application-agent/approve",
+        json={"application_id": app_id_a, "customer_notes": "Attempting cross-tenant approval"},
+        headers=headers_b,
+    )
+    assert cross_approve.status_code == 404
+
+    # Tenant B attempts to submit Tenant A's application -> 403
+    cross_submit = client.post(
+        "/api/v1/copilot/application-agent/submit",
+        json={"application_id": app_id_a, "approval_id": approval_id_2},
+        headers=headers_b,
+    )
+    assert cross_submit.status_code == 403

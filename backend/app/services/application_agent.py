@@ -226,6 +226,24 @@ class ApplicationAgent:
             validation_notes=validation_notes,
         )
         db.add(draft_rec)
+
+        # Invalidate/supersede unsubmitted approvals for this application when a new draft is created
+        prior_approvals = db.execute(
+            select(CopilotApprovalRecord).where(
+                CopilotApprovalRecord.organization_id == org_id,
+                CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+            )
+        ).scalars().all()
+        for p in prior_approvals:
+            if p.target_type == "APPLICATION_DRAFT":
+                has_sub = db.execute(
+                    select(ApplicationSubmissionRecord).where(
+                        ApplicationSubmissionRecord.approval_id == p.approval_id
+                    )
+                ).first()
+                if not has_sub:
+                    p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
+
         db.commit()
         db.refresh(draft_rec)
 
@@ -1039,13 +1057,37 @@ class ApplicationAgent:
                 updated_fields[k] = fields[k]
 
         org.updated_at = datetime.now(timezone.utc)
+
+        # Invalidate unsubmitted approvals if material profile fields changed
+        material_keys = {"annual_revenue_ngn", "cac_registered", "target_customers", "products_services", "business_model"}
+        invalidated_count = 0
+        if material_keys.intersection(updated_fields.keys()):
+            pending_approvals = db.execute(
+                select(CopilotApprovalRecord).where(
+                    CopilotApprovalRecord.organization_id == org_id,
+                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                )
+            ).scalars().all()
+            for appr in pending_approvals:
+                has_submission = db.execute(
+                    select(ApplicationSubmissionRecord).where(
+                        ApplicationSubmissionRecord.approval_id == appr.approval_id
+                    )
+                ).first()
+                if not has_submission:
+                    appr.status = "INVALIDATED_PROFILE_MODIFIED"
+                    invalidated_count += 1
+
         audit = AuditLogRecord(
             log_id=gen_id("aud"),
             actor=user_id,
             action="ORGANIZATION_PROFILE_UPDATED_VIA_AURELIA",
             resource=f"ORG:{org_id}",
             outcome="SUCCESS",
-            details={"updated_fields": list(updated_fields.keys())},
+            details={
+                "updated_fields": list(updated_fields.keys()),
+                "invalidated_prior_approvals": invalidated_count,
+            },
         )
         db.add(audit)
         db.commit()
