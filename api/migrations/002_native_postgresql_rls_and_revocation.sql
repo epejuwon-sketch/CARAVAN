@@ -36,6 +36,11 @@ BEGIN
     GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO caravan_app;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO caravan_app;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO caravan_app;
+    BEGIN
+        EXECUTE format('GRANT caravan_app TO %I', CURRENT_USER);
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
 END $$;
 
 -- 5. Native PostgreSQL Row-Level Security Policies
@@ -327,17 +332,27 @@ BEGIN
 
 END $$;
 
--- 5. Enforce FORCE ROW LEVEL SECURITY across all tenant tables
--- FORCE ensures even table owners and db roles are strictly bounded by RLS
+-- 5. Enforce ENABLE and FORCE ROW LEVEL SECURITY across all tenant tables
+-- ENABLE turns on RLS evaluation; FORCE ensures table owners and db roles are strictly bounded
+ALTER TABLE caravan_organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_organizations FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_users FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_eligibility_assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_eligibility_assessments FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_applications FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_documents FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_saved_opportunities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_saved_opportunities FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_subscriptions FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_payment_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_payment_transactions FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_support_tickets FORCE ROW LEVEL SECURITY;
+ALTER TABLE caravan_notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE caravan_notifications FORCE ROW LEVEL SECURITY;
 
 -- ==============================================================================

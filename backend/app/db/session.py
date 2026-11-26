@@ -467,12 +467,20 @@ def _execute_migrations():
 
             # Idempotently execute 002 native PostgreSQL RLS and token revocation migration
             try:
-                migration_002 = Path(__file__).resolve().parents[2] / "migrations" / "002_native_postgresql_rls_and_revocation.sql"
-                if migration_002.exists():
-                    sql_content = migration_002.read_text(encoding="utf-8")
-                    conn.execute(text(sql_content))
+                candidates = [
+                    Path(__file__).resolve().parents[2] / "migrations" / "002_native_postgresql_rls_and_revocation.sql",
+                    Path(__file__).resolve().parents[1] / "migrations" / "002_native_postgresql_rls_and_revocation.sql",
+                    Path("migrations/002_native_postgresql_rls_and_revocation.sql"),
+                    Path("backend/migrations/002_native_postgresql_rls_and_revocation.sql"),
+                    Path("api/migrations/002_native_postgresql_rls_and_revocation.sql"),
+                ]
+                for mig_path in candidates:
+                    if mig_path.exists():
+                        sql_content = mig_path.read_text(encoding="utf-8")
+                        conn.execute(text(sql_content))
+                        break
             except Exception as rls_err:
-                logger.debug("Non-blocking 002 RLS migration notice: %s", rls_err)
+                logger.warning("002 RLS migration notice: %s", rls_err)
 
     elif dialect_name == "sqlite":
         with engine.begin() as conn:
