@@ -112,8 +112,8 @@ class GeminiMultimodalOCRProvider(BaseOCRProvider):
                     "parts": [
                         {"text": prompt},
                         {
-                            "inline_data": {
-                                "mime_type": mime,
+                            "inlineData": {
+                                "mimeType": mime,
                                 "data": b64_data,
                             }
                         },
@@ -135,6 +135,17 @@ class GeminiMultimodalOCRProvider(BaseOCRProvider):
                         "x-goog-api-key": self.api_key,
                     },
                 )
+                if res.status_code == 404 and self.model != "gemini-1.5-flash":
+                    fallback_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+                    res = client.post(
+                        fallback_url,
+                        json=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.api_key,
+                        },
+                    )
+
                 if res.status_code != 200:
                     logger.warning("Gemini Vision OCR returned non-200: %d", res.status_code)
                     raise RuntimeError(f"Gemini Vision OCR error: HTTP {res.status_code}")

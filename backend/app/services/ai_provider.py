@@ -97,14 +97,14 @@ class GeminiAIProvider(BaseAIProvider):
         }
 
         if system_instruction:
-            payload["system_instruction"] = {
+            payload["systemInstruction"] = {
                 "parts": [{"text": system_instruction}]
             }
 
         if tools:
-            # Map tools to Gemini format
+            # Map tools to Gemini standard format
             payload["tools"] = [{
-                "function_declarations": tools
+                "functionDeclarations": tools
             }]
 
         try:
@@ -117,6 +117,18 @@ class GeminiAIProvider(BaseAIProvider):
                         "x-goog-api-key": self.api_key,
                     },
                 )
+                if res.status_code == 404 and self.model != "gemini-1.5-flash":
+                    logger.info("Model %s returned 404, falling back to gemini-1.5-flash", self.model)
+                    fallback_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+                    res = client.post(
+                        fallback_url,
+                        json=payload,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": self.api_key,
+                        },
+                    )
+
                 if res.status_code != 200:
                     logger.warning("Gemini API non-200 status %d", res.status_code)
                     raise RuntimeError(f"Gemini API returned status {res.status_code}")
