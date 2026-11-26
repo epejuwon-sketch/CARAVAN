@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import List
+from typing import Any, List
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,6 +53,16 @@ class CaravanSettings(BaseSettings):
     # Support & Communications
     SUPPORT_EMAIL: str = "support@caravanfunding.com"
     NOTIFICATIONS_ENABLED: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _detect_environment(cls, data: Any) -> Any:
+        d = dict(data) if isinstance(data, dict) else {}
+        caravan_env = d.get("CARAVAN_ENV") or os.environ.get("CARAVAN_ENV")
+        vercel_env = os.environ.get("VERCEL_ENV")
+        if (not caravan_env or caravan_env == "development") and vercel_env == "production":
+            d["CARAVAN_ENV"] = "production"
+        return d
 
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> "CaravanSettings":
