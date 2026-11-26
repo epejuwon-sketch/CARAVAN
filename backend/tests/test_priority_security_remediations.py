@@ -348,9 +348,9 @@ def test_all_14_tenant_tables_isolation_and_attack_vectors():
             conn.execute(text("SET LOCAL ROLE caravan_admin"))
             conn.execute(text("SELECT set_config('app.is_admin', 'true', true)"))
             conn.execute(text("""
-                INSERT INTO caravan_organizations (org_id, name, country, state_location, sector)
-                VALUES (:oa, 'Org Alpha', 'Nigeria', 'Lagos', 'FinTech'),
-                       (:ob, 'Org Beta', 'Nigeria', 'Abuja', 'AgriTech')
+                INSERT INTO caravan_organizations (org_id, name, entity_type, country, state_location, sector)
+                VALUES (:oa, 'Org Alpha', 'STARTUP', 'Nigeria', 'Lagos', 'FinTech'),
+                       (:ob, 'Org Beta', 'STARTUP', 'Nigeria', 'Abuja', 'AgriTech')
                 ON CONFLICT (org_id) DO NOTHING;
             """), {"oa": org_a, "ob": org_b})
             conn.execute(text("""
@@ -385,8 +385,8 @@ def test_all_14_tenant_tables_isolation_and_attack_vectors():
             from sqlalchemy.exc import ProgrammingError, InternalError
             with pytest.raises((ProgrammingError, InternalError)):
                 conn.execute(text("""
-                    INSERT INTO caravan_organizations (org_id, name, country, state_location, sector)
-                    VALUES ('foreign_org', 'Foreign', 'NG', 'Lagos', 'Tech')
+                    INSERT INTO caravan_organizations (org_id, name, entity_type, country, state_location, sector)
+                    VALUES ('foreign_org', 'Foreign', 'STARTUP', 'NG', 'Lagos', 'Tech')
                 """))
 
         # 5. Missing tenant context (org_id="") -> fail closed (0 rows)
