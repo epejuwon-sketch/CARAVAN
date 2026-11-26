@@ -22,16 +22,9 @@ _caravan_app = None
 try:
     from app.main import app as _caravan_app
 except Exception as exc:
-    _startup_error = {
-        "status": "startup_failed",
-        "error": "CARAVAN Backend Startup Failed",
-        "exception_type": type(exc).__name__,
-        "detail": str(exc),
-        "traceback": traceback.format_exc(),
-        "python_version": sys.version,
-    }
+    _startup_error = type(exc).__name__
     sys.stderr.write(f"[CARAVAN STARTUP FATAL ERROR]: {exc}\n")
-    sys.stderr.write(_startup_error["traceback"])
+    sys.stderr.write(traceback.format_exc())
     sys.stderr.flush()
 
 
@@ -42,22 +35,17 @@ async def app(scope, receive, send):
         while True:
             message = await receive()
             if message["type"] == "lifespan.startup":
-                # Let inner app run lifespan if available and initialized
-                if _caravan_app is not None:
-                    try:
-                        # FastAPI lifespan is handled if we delegate, but to avoid Mangum timeout hangs
-                        pass
-                    except Exception as le:
-                        sys.stderr.write(f"[CARAVAN LIFESPAN NOTICE]: {le}\n")
                 await send({"type": "lifespan.startup.complete"})
             elif message["type"] == "lifespan.shutdown":
                 await send({"type": "lifespan.shutdown.complete"})
                 return
 
     elif scope["type"] == "http":
-        # If startup failed during module import, return diagnostic payload with HTTP 500
+        # If startup failed during module import, return sanitized error with HTTP 500
         if _startup_error is not None:
-            body = json.dumps(_startup_error, indent=2).encode("utf-8")
+            body = json.dumps({
+                "detail": "Application startup in progress or unavailable. Please retry shortly."
+            }).encode("utf-8")
             await send({
                 "type": "http.response.start",
                 "status": 500,
@@ -77,14 +65,11 @@ async def app(scope, receive, send):
         try:
             await _caravan_app(scope, receive, send)
         except Exception as http_exc:
-            error_payload = {
-                "status": "runtime_error",
-                "error": "CARAVAN Unhandled Request Exception",
-                "exception_type": type(http_exc).__name__,
-                "detail": str(http_exc),
-                "traceback": traceback.format_exc(),
-            }
-            body = json.dumps(error_payload, indent=2).encode("utf-8")
+            sys.stderr.write(f"[CARAVAN RUNTIME ERROR]: {http_exc}\n{traceback.format_exc()}\n")
+            sys.stderr.flush()
+            body = json.dumps({
+                "detail": "Internal server error. Please retry shortly."
+            }).encode("utf-8")
             await send({
                 "type": "http.response.start",
                 "status": 500,
