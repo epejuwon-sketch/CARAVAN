@@ -174,7 +174,8 @@ def get_engine():
 
     if not db_url.startswith("sqlite"):
         engine_kwargs = {"future": True}
-        connect_args = {"connect_timeout": 3}
+        # prepare_threshold=None disables server-side prepared statements for PgBouncer/Supabase transaction poolers
+        connect_args = {"connect_timeout": 3, "prepare_threshold": None}
         if is_serverless:
             from sqlalchemy.pool import NullPool
             engine_kwargs["poolclass"] = NullPool
