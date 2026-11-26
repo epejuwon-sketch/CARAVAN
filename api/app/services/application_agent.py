@@ -744,20 +744,26 @@ class ApplicationAgent:
             ).scalars().first()
 
             if draft_rec:
-                approval_rec = db.execute(
-                    select(CopilotApprovalRecord).where(
-                        CopilotApprovalRecord.organization_id == org_id,
-                        CopilotApprovalRecord.target_id == draft_rec.draft_id,
-                        CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-                    ).order_by(CopilotApprovalRecord.approved_at.desc())
-                ).scalars().first()
+                try:
+                    approval_rec = db.execute(
+                        select(CopilotApprovalRecord).where(
+                            CopilotApprovalRecord.organization_id == org_id,
+                            CopilotApprovalRecord.target_id == draft_rec.draft_id,
+                            CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                        ).order_by(CopilotApprovalRecord.approved_at.desc())
+                    ).scalars().first()
+                except Exception:
+                    approval_rec = None
 
-            sub_rec = db.execute(
-                select(ApplicationSubmissionRecord).where(
-                    ApplicationSubmissionRecord.application_id == app_rec.application_id,
-                    ApplicationSubmissionRecord.organization_id == org_id,
-                ).order_by(ApplicationSubmissionRecord.submitted_at.desc())
-            ).scalars().first()
+            try:
+                sub_rec = db.execute(
+                    select(ApplicationSubmissionRecord).where(
+                        ApplicationSubmissionRecord.application_id == app_rec.application_id,
+                        ApplicationSubmissionRecord.organization_id == org_id,
+                    ).order_by(ApplicationSubmissionRecord.submitted_at.desc())
+                ).scalars().first()
+            except Exception:
+                sub_rec = None
 
         # 5. Evaluate Eligibility & Document Vault
         elig = evaluate_eligibility(db, org_id=org_id, opportunity_id=opportunity_id)
@@ -861,6 +867,13 @@ class ApplicationAgent:
             "READY_FOR_REVIEW" if (draft_rec and draft_rec.validation_status in ("READY_FOR_REVIEW", "INCOMPLETE_ADMIN_OVERRIDE"))
             else ("INCOMPLETE" if draft_rec else "PENDING_DRAFT")
         )
+        val_notes_str = ""
+        if draft_rec and getattr(draft_rec, "validation_notes", None):
+            if isinstance(draft_rec.validation_notes, list):
+                val_notes_str = "; ".join(str(n) for n in draft_rec.validation_notes)
+            else:
+                val_notes_str = str(draft_rec.validation_notes)
+
         stage_review = {
             "stage_id": "REVIEW",
             "name": "Review",
@@ -868,7 +881,7 @@ class ApplicationAgent:
             "status": review_status,
             "summary": (
                 "Application validated and ready for customer review." if review_status == "READY_FOR_REVIEW"
-                else (f"Dossier incomplete: {'; '.join(draft_rec.validation_notes)}" if draft_rec and draft_rec.validation_notes else "Draft review pending.")
+                else (f"Dossier incomplete: {val_notes_str}" if val_notes_str else "Draft review pending.")
             ),
             "data": {
                 "validation_status": draft_rec.validation_status if draft_rec else "NOT_DRAFTED",
@@ -879,20 +892,27 @@ class ApplicationAgent:
 
         # APPROVE
         is_approved = bool(approval_rec and approval_rec.status in ("APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"))
+        appr_date_str = "Verified"
+        if approval_rec and getattr(approval_rec, "approved_at", None):
+            try:
+                appr_date_str = approval_rec.approved_at.strftime("%d %b %Y")
+            except Exception:
+                appr_date_str = str(approval_rec.approved_at)
+
         stage_approve = {
             "stage_id": "APPROVE",
             "name": "Approve",
             "sequence": 6,
             "status": "APPROVED" if is_approved else "PENDING_APPROVAL",
             "summary": (
-                f"Approved by {approval_rec.approval_type} ({approval_rec.approved_at.strftime('%d %b %Y')})." if is_approved
+                f"Approved by {getattr(approval_rec, 'approval_type', 'Customer')} ({appr_date_str})." if is_approved
                 else "Requires explicit customer authorization before submission."
             ),
             "data": {
                 "is_approved": is_approved,
                 "approval_id": approval_rec.approval_id if approval_rec else None,
                 "approval_type": approval_rec.approval_type if approval_rec else None,
-                "approved_at": approval_rec.approved_at.isoformat() if approval_rec and approval_rec.approved_at else None,
+                "approved_at": approval_rec.approved_at.isoformat() if approval_rec and getattr(approval_rec, "approved_at", None) else None,
                 "approval_hash": approval_rec.approval_hash if approval_rec else None,
             },
         }

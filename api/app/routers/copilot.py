@@ -355,12 +355,20 @@ def api_get_customer_journey(
     """Returns the complete 8-stage AURELIA customer funding journey:
     DISCOVER -> MATCH -> UNDERSTAND -> PREPARE -> REVIEW -> APPROVE -> SUBMIT -> TRACK.
     """
-    return ApplicationAgent.get_customer_journey(
-        db=db,
-        org_id=principal.organization_id,
-        opportunity_id=opportunity_id,
-        application_id=application_id,
-    )
+    try:
+        return ApplicationAgent.get_customer_journey(
+            db=db,
+            org_id=principal.organization_id,
+            opportunity_id=opportunity_id,
+            application_id=application_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Customer journey calculation notice: {type(exc).__name__}: {exc}",
+        )
 
 
 @router.post("/journey/{opportunity_id}/update-profile")
