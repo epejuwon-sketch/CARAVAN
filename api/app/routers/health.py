@@ -38,8 +38,6 @@ def api_health(db: Session = Depends(get_db)):
         parsed = make_url(norm_url)
         sanitized_url = parsed.render_as_string(hide_password=True)
     except Exception:
-        sanitized_url = norm_url.split("@")[-1] if "@" in norm_url else norm_url[:12]
-
     res = {
         "status": "ready" if db_healthy else "degraded",
         "service": "CARAVAN Funding Intelligence Platform",
@@ -52,4 +50,26 @@ def api_health(db: Session = Depends(get_db)):
     }
     if not db_healthy:
         res["database_diagnostic"] = db_err_detail
+
+        # Check port 6543 alternative for Supabase pooler
+        if "pooler.supabase.com" in norm_url and ":5432" in norm_url:
+            from sqlalchemy import create_engine as ce
+            try:
+                url_6543 = norm_url.replace(":5432", ":6543")
+                eng_6543 = ce(url_6543, connect_args={"connect_timeout": 3})
+                with eng_6543.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                res["supabase_port_6543_test"] = "SUCCESS"
+            except Exception as e6543:
+                res["supabase_port_6543_test"] = f"{type(e6543).__name__}: {e6543}"
+
+        try:
+            raw_pw = parsed.password or ""
+            res["password_metadata"] = {
+                "length": len(raw_pw),
+                "has_special_chars": any(c in raw_pw for c in "@#%&:/?$"),
+                "is_ascii": raw_pw.isascii(),
+            }
+        except Exception:
+            pass
     return res
