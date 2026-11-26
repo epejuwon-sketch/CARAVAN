@@ -106,9 +106,12 @@ class DistributedRateLimiter:
         window_seconds: int,
         now: float,
         is_sensitive: bool = False,
+        force_store_failure: bool = False,
     ) -> None:
         """Atomically increments the request counter for the bucket key."""
         try:
+            if force_store_failure:
+                raise RuntimeError("Controlled simulated rate limit store outage")
             from app.db.session import get_session_factory
             SessionLocal = get_session_factory()
             with SessionLocal() as session:

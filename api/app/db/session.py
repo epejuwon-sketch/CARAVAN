@@ -22,11 +22,45 @@ _engine = None
 _SessionLocal = None
 _migrations_applied = False
 _sqlite_migrated = False
+_last_migration_002_status = "unattempted"
+_last_migration_002_error = None
+
+
+def get_sanitized_db_provider() -> str:
+    """Returns the sanitized identity of the PostgreSQL provider without exposing hosts or credentials."""
+    settings = get_settings()
+    raw = (settings.DATABASE_URL or "").strip()
+    if not raw or raw.startswith("sqlite"):
+        return "SQLite Development"
+    try:
+        from sqlalchemy.engine import make_url
+        parsed = make_url(normalize_database_url(raw))
+        host = (parsed.host or "").lower()
+        if "supabase" in host:
+            return "Supabase Managed Cloud PostgreSQL"
+        elif host in ("localhost", "127.0.0.1", "caravan-postgres"):
+            return "Docker / Local Container PostgreSQL"
+        elif "neon" in host:
+            return "Neon Serverless PostgreSQL"
+        elif "rds.amazonaws.com" in host or "aws" in host:
+            return "AWS RDS PostgreSQL"
+        else:
+            return "Hosted PostgreSQL"
+    except Exception:
+        return "PostgreSQL"
+
+
+def get_migration_002_status() -> dict:
+    """Returns the status and error detail of migration 002 execution."""
+    return {
+        "status": _last_migration_002_status,
+        "error": _last_migration_002_error,
+    }
 
 
 def reset_engine():
     """Resets the active database engine and session factory (used in tests and restarts)."""
-    global _engine, _SessionLocal, _migrations_applied, _sqlite_migrated
+    global _engine, _SessionLocal, _migrations_applied, _sqlite_migrated, _last_migration_002_status, _last_migration_002_error
     if _engine is not None:
         try:
             _engine.dispose()
@@ -36,6 +70,8 @@ def reset_engine():
     _SessionLocal = None
     _migrations_applied = False
     _sqlite_migrated = False
+    _last_migration_002_status = "unattempted"
+    _last_migration_002_error = None
 
 
 def is_using_fallback() -> bool:
@@ -471,7 +507,9 @@ def _execute_migrations():
                     logger.debug("Non-blocking PostgreSQL migration notice: %s", stmt_err)
 
             # Idempotently execute 002 native PostgreSQL RLS and token revocation migration
+            global _last_migration_002_status, _last_migration_002_error
             try:
+                sql_content = None
                 candidates = [
                     Path(__file__).resolve().parents[2] / "migrations" / "002_native_postgresql_rls_and_revocation.sql",
                     Path(__file__).resolve().parents[1] / "migrations" / "002_native_postgresql_rls_and_revocation.sql",
@@ -481,10 +519,26 @@ def _execute_migrations():
                 ]
                 for mig_path in candidates:
                     if mig_path.exists():
-                        sql_content = mig_path.read_text(encoding="utf-8")
-                        conn.execute(text(sql_content))
-                        break
+                        try:
+                            sql_content = mig_path.read_text(encoding="utf-8")
+                            break
+                        except Exception:
+                            pass
+                if not sql_content:
+                    try:
+                        from app.db.migration_002_sql import MIGRATION_002_SQL
+                        sql_content = MIGRATION_002_SQL
+                    except Exception as imp_err:
+                        logger.warning("Could not load embedded migration 002: %s", imp_err)
+                if sql_content:
+                    conn.execute(text(sql_content))
+                    _last_migration_002_status = "applied"
+                    _last_migration_002_error = None
+                else:
+                    _last_migration_002_status = "sql_not_found"
             except Exception as rls_err:
+                _last_migration_002_status = "error"
+                _last_migration_002_error = str(rls_err)
                 logger.warning("002 RLS migration notice: %s", rls_err)
 
     elif dialect_name == "sqlite":
