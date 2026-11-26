@@ -110,6 +110,9 @@ def normalize_database_url(raw_url: str) -> str:
                 port=6543,
                 username=current_user,
             )
+        elif parsed.host and "pooler.supabase.com" in parsed.host:
+            if parsed.username and "." not in parsed.username:
+                parsed = parsed.set(username=f"{parsed.username}.pceyszeflfwntralsrmj")
 
         if parsed.query:
             NON_LIBPQ = {
