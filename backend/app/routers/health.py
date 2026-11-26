@@ -15,6 +15,7 @@ router = APIRouter(tags=["Health"])
 
 @router.get("/health")
 @router.get("/api/health")
+@router.get("/api/v1/health")
 def api_health(db: Session = Depends(get_db)):
     t0 = time.perf_counter()
     db_healthy = True

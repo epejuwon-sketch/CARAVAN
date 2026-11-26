@@ -57,7 +57,8 @@ class CaravanSettings(BaseSettings):
     @model_validator(mode="after")
     def _enforce_production_secrets(self) -> "CaravanSettings":
         if self.CARAVAN_ENV == "production":
-            raw_jwt_key = (self.JWT_SECRET_KEY or "").strip()
+            raw_jwt_key = (self.JWT_SECRET_KEY or "").strip("'\"\r\n\t ")
+            self.JWT_SECRET_KEY = raw_jwt_key
             if (
                 not raw_jwt_key
                 or len(raw_jwt_key.encode("utf-8")) < 32
