@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { CaravanLogo } from "../brand/CaravanLogo";
+import { CopilotWidget } from "../copilot/CopilotWidget";
 
 interface PortalLayoutProps {
   currentRoute: string;
@@ -270,6 +271,9 @@ export const PortalLayout: React.FC<PortalLayoutProps> = ({
         <div className="app-body">
           {children}
         </div>
+
+        {/* Floating AI Copilot Widget */}
+        <CopilotWidget onNavigate={onNavigate} />
       </div>
     </div>
   );

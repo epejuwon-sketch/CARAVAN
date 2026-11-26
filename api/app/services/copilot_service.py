@@ -1,7 +1,8 @@
 """CARAVAN Standalone Platform — Business Copilot & Intelligence Engine.
 
 Provides conversational AI funding copilot grounded in tenant-isolated business intelligence,
-retrieval over verified funding opportunities, anti-hallucination guardrails, and proposal drafting.
+retrieval over verified funding opportunities, anti-hallucination guardrails, proposal drafting,
+document intelligence, and 13-step application preparation.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from app.db.models import (
     DocumentMetadataRecord,
     CopilotSessionRecord,
     CopilotMessageRecord,
+    AuditLogRecord,
     gen_id,
     utcnow,
 )
@@ -28,6 +30,32 @@ from app.core.entitlements import (
     consume_copilot_credits,
     get_tenant_entitlements_and_usage,
 )
+from app.services.ai_provider import AIProviderFactory, AIProviderResponse
+from app.services.copilot_tools import COPILOT_TOOL_DEFINITIONS, CopilotToolDispatcher
+from app.services.document_intelligence import DocumentIntelligence
+from app.services.application_agent import ApplicationAgent
+
+
+PROMPT_INJECTION_PATTERNS = [
+    r"ignore\s+(all\s+)?previous\s+instructions",
+    r"system\s+prompt\s+override",
+    r"you\s+are\s+now\s+(an?\s+)?unrestricted",
+    r"disregard\s+(all\s+)?prior\s+constraints",
+    r"reveal\s+(the\s+)?system\s+key",
+    r"print\s+(all\s+)?passwords",
+    r"drop\s+table",
+]
+
+
+def sanitize_prompt_input(text: str) -> tuple[str, bool]:
+    """Sanitize user input against prompt injection attempts."""
+    clean = text.strip()
+    is_injection = False
+    for pattern in PROMPT_INJECTION_PATTERNS:
+        if re.search(pattern, clean, re.IGNORECASE):
+            is_injection = True
+            clean = re.sub(pattern, "[FILTERED_SECURITY_DIRECTIVE]", clean, flags=re.IGNORECASE)
+    return clean, is_injection
 
 
 def calculate_business_readiness(org: OrganizationRecord) -> Dict[str, Any]:
@@ -100,53 +128,47 @@ def calculate_business_readiness(org: OrganizationRecord) -> Dict[str, Any]:
         pillars["financial_traction"]["details"].append("Active revenue traction (> ₦5M), eligible for commercial debt and working capital.")
     elif rev_ngn > 0:
         pillars["financial_traction"]["score"] += 10
-        pillars["financial_traction"]["details"].append("Early revenues recorded; qualify for early-stage grants and angel matching.")
+        pillars["financial_traction"]["details"].append("Early commercial revenue registered; eligible for micro-grants and seed accelerators.")
     else:
         pillars["financial_traction"]["score"] += 3
-        pillars["financial_traction"]["gaps"].append("Pre-revenue venture; focus on non-dilutive idea-stage grants and proof-of-concept awards.")
+        pillars["financial_traction"]["gaps"].append("Pre-revenue; target non-dilutive ideation grants and university/incubator competitions.")
 
     # Pillar 3: Strategic Clarity (25 pts)
-    prod = getattr(org, "products_services", "") or ""
-    cust = getattr(org, "target_customers", "") or ""
-    model = getattr(org, "business_model", "B2B") or "B2B"
-
-    if len(prod.strip()) >= 15:
+    if org.products_services and len(org.products_services) > 10:
         pillars["strategic_clarity"]["score"] += 10
-        pillars["strategic_clarity"]["details"].append("Articulated core product/service offering.")
+        pillars["strategic_clarity"]["details"].append("Clearly articulated products and core commercial service offerings.")
     else:
-        pillars["strategic_clarity"]["gaps"].append("Expand product and value proposition description in business profile.")
+        pillars["strategic_clarity"]["gaps"].append("Define specific commercial products/services to demonstrate market feasibility.")
 
-    if len(cust.strip()) >= 10:
+    if org.target_customers and len(org.target_customers) > 5:
         pillars["strategic_clarity"]["score"] += 8
-        pillars["strategic_clarity"]["details"].append(f"Defined target market: '{cust[:60]}'.")
+        pillars["strategic_clarity"]["details"].append(f"Validated customer target segment ({org.target_customers}).")
     else:
-        pillars["strategic_clarity"]["gaps"].append("Specify target customer demographic or institutional segments.")
+        pillars["strategic_clarity"]["gaps"].append("Specify target customer demographics and ICP (Ideal Customer Profile).")
 
-    if model:
+    if org.business_model:
         pillars["strategic_clarity"]["score"] += 7
-        pillars["strategic_clarity"]["details"].append(f"Identified revenue model: {model}.")
+        pillars["strategic_clarity"]["details"].append(f"Established revenue architecture ({org.business_model}).")
 
-    # Pillar 4: Capital Planning (15 pts)
-    goals = org.funding_goals or ""
-    use_of_funds = getattr(org, "intended_use_of_funds", "") or ""
-
-    if len(goals.strip()) >= 10:
-        pillars["capital_planning"]["score"] += 8
-        pillars["capital_planning"]["details"].append("Explicit capital goals defined.")
+    # Pillar 4: Capital Strategy (15 pts)
+    if org.intended_use_of_funds and len(org.intended_use_of_funds) > 10:
+        pillars["capital_planning"]["score"] += 10
+        pillars["capital_planning"]["details"].append("Specific, auditable capital deployment and intended use of funds.")
     else:
-        pillars["capital_planning"]["gaps"].append("State specific target funding amounts and preferred capital types.")
+        pillars["capital_planning"]["gaps"].append("Detail how grant/loan proceeds will be deployed across Capex and Opex.")
 
-    if len(use_of_funds.strip()) >= 15:
-        pillars["capital_planning"]["score"] += 7
-        pillars["capital_planning"]["details"].append("Granular use of funds and budget allocation outlined.")
+    target_funding = getattr(org, "target_funding_amount", 0.0) or getattr(org, "target_funding_usd", 0.0) or (50000000.0 if getattr(org, "funding_goals", "") else 0.0)
+    if target_funding > 0:
+        pillars["capital_planning"]["score"] += 5
+        pillars["capital_planning"]["details"].append(f"Target quantum identified: ₦{target_funding:,.0f}")
     else:
-        pillars["capital_planning"]["gaps"].append("Outline intended use of proceeds (capex, opex, hiring, or expansion).")
+        pillars["capital_planning"]["gaps"].append("Set a realistic target funding amount aligned with your current valuation and revenue.")
 
-    # Pillar 5: Track Record & Operations (15 pts)
+    # Pillar 5: Track Record & Pedigree (15 pts)
     history = getattr(org, "previous_funding_history", []) or []
-    if history and len(history) > 0:
+    if history:
         pillars["track_record"]["score"] += 15
-        pillars["track_record"]["details"].append(f"Demonstrated funding track record ({len(history)} prior transactions/grants).")
+        pillars["track_record"]["details"].append(f"Demonstrated funding history ({len(history)} past program awards).")
     elif org.years_in_operation >= 2:
         pillars["track_record"]["score"] += 10
         pillars["track_record"]["details"].append("2+ years operational resilience in local market.")
@@ -280,23 +302,19 @@ class CopilotEngine:
 
         for opp in all_opps:
             fit_score = 0
-            opp_title = (opp.title or "").lower()
             opp_sec = (opp.industry_sector or "").lower()
+            opp_title = (opp.title or "").lower()
             opp_desc = (opp.applicant_eligibility or "").lower()
 
             # Sector alignment
-            if sector_norm in opp_sec or opp_sec in sector_norm or "multi-sector" in opp_sec:
+            if sector_norm and (sector_norm in opp_sec or opp_sec in sector_norm or "multi-sector" in opp_sec):
                 fit_score += 35
 
-            # Sector specific keywords
-            if "agri" in sector_norm and ("agri" in opp_title or "agri" in opp_desc or "food" in opp_desc):
-                fit_score += 40
-            elif ("tech" in sector_norm or "software" in sector_norm) and ("tech" in opp_title or "accelerator" in opp_title or "seed" in opp_desc):
-                fit_score += 40
-            elif ("retail" in sector_norm or "commerce" in sector_norm) and ("msme" in opp_title or "working capital" in opp_desc or "lsetf" in opp_title):
-                fit_score += 40
-            elif "energy" in sector_norm and ("energy" in opp_title or "solar" in opp_desc or "off-grid" in opp_title):
-                fit_score += 40
+            # Geography alignment
+            org_geo = (org.country or "Nigeria").lower()
+            opp_geo = (opp.geographic_eligibility or "").lower()
+            if org_geo in opp_geo or "global" in opp_geo or "pan-african" in opp_geo or "africa" in opp_geo:
+                fit_score += 25
 
             # Match on query keywords
             for qt in q_terms:
@@ -324,7 +342,21 @@ class CopilotEngine:
         # 1. Enforce Entitlement Quota
         check_can_use_copilot(db, org_id, required_credits=1)
 
-        # 2. Retrieve Tenant Business Context
+        # 2. Sanitize against Prompt Injections
+        clean_msg, is_injection = sanitize_prompt_input(user_message)
+        if is_injection:
+            audit = AuditLogRecord(
+                log_id=gen_id("aud"),
+                actor=user_id,
+                action="PROMPT_INJECTION_ATTEMPT_DEFLECTED",
+                resource=f"COPILOT_SESSION:{session_id}",
+                outcome="SUCCESS",
+                details={"organization_id": org_id, "original_length": len(user_message)},
+            )
+            db.add(audit)
+            db.commit()
+
+        # 3. Retrieve Tenant Business Context
         org = db.execute(
             select(OrganizationRecord).where(OrganizationRecord.org_id == org_id)
         ).scalar_one_or_none()
@@ -340,15 +372,15 @@ class CopilotEngine:
             session_id=session.session_id,
             organization_id=org_id,
             role="USER",
-            content=user_message.strip(),
+            content=clean_msg,
             citations=[],
             actions=[],
-            tokens_used=len(user_message.split()),
+            tokens_used=len(clean_msg.split()),
         )
         db.add(user_msg_rec)
 
-        # 3. Retrieve Grounding Opportunities
-        matched_opps = CopilotEngine.retrieve_matching_opportunities(db, org, query=user_message, limit=3)
+        # 4. Grounding Context: Retrieve Opportunities & Readiness
+        matched_opps = CopilotEngine.retrieve_matching_opportunities(db, org, query=clean_msg, limit=3)
         readiness = calculate_business_readiness(org)
 
         citations = []
@@ -363,126 +395,162 @@ class CopilotEngine:
                 "deadline_at": opp.deadline_at.isoformat() if opp.deadline_at else "Rolling / Open",
             })
 
-        # 4. Generate Domain-Expert Grounded Response
-        msg_lower = user_message.lower()
-        response_text = ""
+        # 5. Call AI Provider with fallback and structured tools
+        system_instruction = (
+            "You are the CARAVAN Institutional Funding Copilot and Grant Application Assistant. "
+            f"You are advising '{org.name}', a {org.stage} company in {org.sector} based in {org.state_location}, {org.country}. "
+            "Base your advice exclusively on CARAVAN's verified registry of institutional funding programs. "
+            "Never invent grants, deadlines, or amounts. Clearly distinguish confirmed criteria from missing requirements. "
+            "Always link to official verified sources and guide users toward professional application readiness."
+        )
+
+        ai_response = AIProviderFactory.generate_resilient(
+            messages=[{"role": "user", "content": clean_msg}],
+            system_instruction=system_instruction,
+            tools=COPILOT_TOOL_DEFINITIONS,
+            context={"org_id": org_id, "opportunity_id": matched_opps[0].opportunity_id if matched_opps else ""},
+        )
+
+        # Execute any tools requested by the AI provider
+        tool_results = []
+        for tc in ai_response.tool_calls:
+            t_res = CopilotToolDispatcher.execute_tool(
+                db=db,
+                tool_name=tc.get("name", ""),
+                tool_args=tc.get("args", {}),
+                org_id=org_id,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            tool_results.append({"tool": tc.get("name"), "result": t_res})
+
+        # 6. Construct Grounded Response Text
+        msg_lower = clean_msg.lower()
+        response_text = ai_response.content
         actions = []
 
         sector_title = org.sector or "Technology"
         entity_name = org.name or "your enterprise"
 
-        if "readiness" in msg_lower or "score" in msg_lower or "eligible" in msg_lower or "diagnos" in msg_lower:
-            response_text = (
-                f"### Business Funding Readiness Assessment for {entity_name}\n\n"
-                f"**Overall Readiness Score: {readiness['readiness_score']}/100** ({readiness['readiness_level'].replace('_', ' ')})\n\n"
-                f"Based on your profile as a **{org.stage}** stage company operating in **{sector_title}** ({org.state_location}, {org.country}):\n\n"
-            )
-            for key, pil in readiness["pillars"].items():
-                status_icon = "🟢" if pil["score"] >= (pil["max"] * 0.75) else ("🟡" if pil["score"] >= (pil["max"] * 0.4) else "🔴")
-                response_text += f"- **{status_icon} {pil['name']}**: {pil['score']}/{pil['max']} pts\n"
-                if pil["details"]:
-                    response_text += f"  - *Strength*: {pil['details'][0]}\n"
-                if pil["gaps"]:
-                    response_text += f"  - *Action Required*: {pil['gaps'][0]}\n"
+        if not response_text:
+            # Domain-grounded fallback text generation
+            if "readiness" in msg_lower or "score" in msg_lower or "diagnos" in msg_lower:
+                response_text = (
+                    f"### Business Funding Readiness Assessment for {entity_name}\n\n"
+                    f"**Overall Readiness Score: {readiness['readiness_score']}/100** ({readiness['readiness_level'].replace('_', ' ')})\n\n"
+                    f"Based on your profile as a **{org.stage}** stage company operating in **{sector_title}** ({org.state_location}, {org.country}):\n\n"
+                )
+                for key, pil in readiness["pillars"].items():
+                    status_icon = "🟢" if pil["score"] >= (pil["max"] * 0.75) else ("🟡" if pil["score"] >= (pil["max"] * 0.4) else "🔴")
+                    response_text += f"- **{status_icon} {pil['name']}**: {pil['score']}/{pil['max']} pts\n"
+                    if pil["details"]:
+                        response_text += f"  - *Strength*: {pil['details'][0]}\n"
+                    if pil["gaps"]:
+                        response_text += f"  - *Action Required*: {pil['gaps'][0]}\n"
 
-            response_text += "\n#### Recommended Immediate Next Steps:\n"
-            response_text += "1. Complete your document repository with your latest CAC Status Report and 12-month bank statements.\n"
-            response_text += f"2. Review the verified **{sector_title}** funding programs cited below tailored to your capital profile."
+                response_text += "\n#### Recommended Immediate Next Steps:\n"
+                response_text += "1. Complete your document repository with your latest CAC Status Report and 12-month bank statements.\n"
+                response_text += f"2. Review the verified **{sector_title}** funding programs cited below tailored to your capital profile."
 
-            actions = [
-                {"label": "Explore Matched Programs", "action": "NAVIGATE_DISCOVER", "data": {"sector": org.sector}},
-                {"label": "Update Business Profile", "action": "NAVIGATE_ACCOUNT", "data": {"tab": "profile"}},
-            ]
+                actions = [
+                    {"label": "Explore Matched Programs", "action": "NAVIGATE_DISCOVER", "data": {"sector": org.sector}},
+                    {"label": "Update Business Profile", "action": "NAVIGATE_ACCOUNT", "data": {"tab": "profile"}},
+                ]
 
-        elif "draft" in msg_lower or "proposal" in msg_lower or "apply" in msg_lower or "outline" in msg_lower:
-            chosen_opp = matched_opps[0] if matched_opps else None
-            opp_name = chosen_opp.title if chosen_opp else "Institutional Capital Grant"
-            provider_name = chosen_opp.provider if chosen_opp else "Funding Provider"
+            elif "draft" in msg_lower or "proposal" in msg_lower or "apply" in msg_lower or "outline" in msg_lower:
+                chosen_opp = matched_opps[0] if matched_opps else None
+                opp_name = chosen_opp.title if chosen_opp else "Institutional Capital Grant"
+                provider_name = chosen_opp.provider if chosen_opp else "Funding Provider"
 
-            response_text = (
-                f"### Application Proposal Framework: {opp_name}\n"
-                f"**Target Provider:** {provider_name} | **Applicant:** {entity_name}\n\n"
-                f"#### 1. Executive Summary\n"
-                f"{entity_name} is a high-growth {org.stage.lower()} enterprise operating in Nigeria's {sector_title} sector. "
-                f"With a dedicated team of {org.team_size} and {org.years_in_operation} year(s) of operational validation, "
-                f"we are seeking capital to expand capacity, deploy productive infrastructure, and accelerate our market reach.\n\n"
-                f"#### 2. Problem Statement & Market Opportunity\n"
-                f"Our target demographic ({getattr(org, 'target_customers', 'key enterprise and consumer segments')}) "
-                f"faces acute bottlenecks that standard alternatives fail to resolve efficiently. "
-                f"{entity_name} bridges this gap through our proprietary {getattr(org, 'products_services', 'commercial offerings')}.\n\n"
-                f"#### 3. Strategic Alignment with {provider_name}\n"
-                f"This initiative directly advances {provider_name}'s mandate by fostering sustainable domestic employment, "
-                f"economic formalization, and technological empowerment across Nigeria.\n\n"
-                f"#### 4. Budget Breakdown & Intended Use of Funds\n"
-                f"{getattr(org, 'intended_use_of_funds', '70% Capital Expenditure (Equipment & Infrastructure), 20% Operational Scale, 10% Governance & Compliance')}.\n\n"
-                f"#### 5. Required Attachments Checklist\n"
-            )
-            reqs = (chosen_opp.application_requirements if chosen_opp else None) or [
-                "CAC Certificate of Incorporation",
-                "12 Months Corporate Bank Statements",
-                "Tax Clearance Certificate",
-                "Executive Pitch Deck & Feasibility Report",
-            ]
-            for r in reqs:
-                response_text += f"- [ ] {r}\n"
+                response_text = (
+                    f"### Application Proposal Framework: {opp_name}\n"
+                    f"**Target Provider:** {provider_name} | **Applicant:** {entity_name}\n\n"
+                    f"#### 1. Executive Summary\n"
+                    f"{entity_name} is a high-growth {org.stage.lower()} enterprise operating in Nigeria's {sector_title} sector. "
+                    f"With a dedicated team of {org.team_size} and {org.years_in_operation} year(s) of operational validation, "
+                    f"we are seeking capital to expand capacity, deploy productive infrastructure, and accelerate our market reach.\n\n"
+                    f"#### 2. Problem Statement & Market Opportunity\n"
+                    f"Our target demographic ({getattr(org, 'target_customers', 'key enterprise and consumer segments')}) "
+                    f"faces acute bottlenecks that standard alternatives fail to resolve efficiently. "
+                    f"{entity_name} bridges this gap through our proprietary {getattr(org, 'products_services', 'commercial offerings')}.\n\n"
+                    f"#### 3. Strategic Alignment with {provider_name}\n"
+                    f"This initiative directly advances {provider_name}'s mandate by fostering sustainable domestic employment, "
+                    f"economic formalization, and technological empowerment across Nigeria.\n\n"
+                    f"#### 4. Budget Breakdown & Intended Use of Funds\n"
+                    f"{getattr(org, 'intended_use_of_funds', '70% Capital Expenditure (Equipment & Infrastructure), 20% Operational Scale, 10% Governance & Compliance')}.\n\n"
+                    f"#### 5. Required Attachments Checklist\n"
+                )
+                reqs = (chosen_opp.application_requirements if chosen_opp else None) or [
+                    "CAC Certificate of Incorporation",
+                    "12 Months Corporate Bank Statements",
+                    "Tax Clearance Certificate",
+                    "Executive Pitch Deck & Feasibility Report",
+                ]
+                for r in reqs:
+                    response_text += f"- [ ] {r}\n"
 
-            actions = [
-                {"label": "Create Application Workspace", "action": "CREATE_APPLICATION", "data": {"opportunity_id": chosen_opp.opportunity_id if chosen_opp else ""}},
-                {"label": "Export Draft Proposal", "action": "EXPORT_DRAFT", "data": {"title": opp_name}},
-            ]
+                actions = [
+                    {"label": "Launch 13-Step Application Agent", "action": "START_APPLICATION_AGENT", "data": {"opportunity_id": chosen_opp.opportunity_id if chosen_opp else ""}},
+                    {"label": "Audit Document Readiness", "action": "CHECK_DOCS", "data": {"opportunity_id": chosen_opp.opportunity_id if chosen_opp else ""}},
+                ]
 
-        elif "document" in msg_lower or "checklist" in msg_lower:
-            response_text = (
-                f"### Institutional Document Readiness Checklist for {entity_name}\n\n"
-                f"To qualify for verified grants and low-interest concessionary loans in Nigeria, "
-                f"institutional underwriters require the following documentation:\n\n"
-                f"1. **Corporate Status:**\n"
-                f"   - CAC Certificate of Incorporation & Status Report (MEMART)\n"
-                f"   - Tax Identification Number (TIN) & FIRS Tax Clearance\n"
-                f"2. **Financial Records:**\n"
-                f"   - 6 to 12 Months Official Bank Statements (stamped or e-certified)\n"
-                f"   - Audited Financial Statements or Management Accounts\n"
-                f"3. **Operational Evidence:**\n"
-                f"   - Institutional Pitch Deck & 3-Year Financial Model\n"
-                f"   - Relevant Regulatory Licenses (e.g. NAFDAC, NEPC, CBN where applicable)\n\n"
-                f"All documents uploaded to CARAVAN are quarantined, scanned for malware, and encrypted in your tenant-isolated repository."
-            )
-            actions = [
-                {"label": "Upload Documents", "action": "NAVIGATE_APPLICATIONS", "data": {"tab": "documents"}},
-            ]
+            elif "document" in msg_lower or "checklist" in msg_lower or "upload" in msg_lower:
+                doc_audit = DocumentIntelligence.match_documents_to_requirements(
+                    db,
+                    org_id=org_id,
+                    opportunity_id=matched_opps[0].opportunity_id if matched_opps else "",
+                )
+                response_text = (
+                    f"### Institutional Document Readiness Audit for {entity_name}\n\n"
+                    f"**Vault Readiness Score: {doc_audit['readiness_pct']}%** "
+                    f"({doc_audit['satisfied_count']} of {doc_audit['total_requirements']} required documents satisfied).\n\n"
+                )
+                if doc_audit["matched_documents"]:
+                    response_text += "#### Satisfied Documents in Vault:\n"
+                    for md in doc_audit["matched_documents"]:
+                        response_text += f"- 🟢 **{md['requirement']}**: Verified ({md['document']['name']})\n"
 
-        else:
-            # General consultative strategy
-            response_text = (
-                f"### Funding Intelligence Strategy for {entity_name}\n\n"
-                f"Hello! As your CARAVAN Business Copilot, I've analyzed your corporate profile in **{sector_title}** "
-                f"(Stage: **{org.stage}**, Team: **{org.team_size}**, Revenue: **₦{getattr(org, 'annual_revenue_ngn', 0):,.0f}**).\n\n"
-                f"Here are the highest-probability institutional funding opportunities available in the verified registry for your sector:\n\n"
-            )
+                if doc_audit["missing_documents"]:
+                    response_text += "\n#### Missing Mandatory Attachments:\n"
+                    for m in doc_audit["missing_documents"]:
+                        response_text += f"- 🔴 **{m['requirement']}**: *Action Required* — Upload {m['label']}\n"
 
-            for i, opp in enumerate(matched_opps, 1):
-                response_text += (
-                    f"**{i}. {opp.title}** ({opp.funding_type})\n"
-                    f"- **Provider**: {opp.provider}\n"
-                    f"- **Funding Quantum**: {opp.amount_display}\n"
-                    f"- **Eligibility**: {opp.applicant_eligibility[:140]}...\n"
-                    f"- **Official Portal**: [{opp.provider}]({opp.official_source_url})\n\n"
+                actions = [
+                    {"label": "Upload Documents to Vault", "action": "NAVIGATE_APPLICATIONS", "data": {"tab": "documents"}},
+                ]
+
+            else:
+                # General consultative strategy
+                response_text = (
+                    f"### Funding Intelligence Strategy for {entity_name}\n\n"
+                    f"Hello! As your CARAVAN Business Copilot, I've analyzed your corporate profile in **{sector_title}** "
+                    f"(Stage: **{org.stage}**, Team: **{org.team_size}**, Revenue: **₦{getattr(org, 'annual_revenue_ngn', 0):,.0f}**).\n\n"
+                    f"Here are the highest-probability institutional funding opportunities available in the verified registry for your sector:\n\n"
                 )
 
-            response_text += (
-                "Would you like me to:\n"
-                "- Run a **Readiness Diagnostic** to highlight any eligibility gaps?\n"
-                "- Generate a **Draft Proposal & Executive Summary** for one of these programs?\n"
-                "- Prepare an **Application Document Checklist** for your team?"
-            )
+                for i, opp in enumerate(matched_opps, 1):
+                    response_text += (
+                        f"**{i}. {opp.title}** ({opp.funding_type})\n"
+                        f"- **Provider**: {opp.provider}\n"
+                        f"- **Funding Quantum**: {opp.amount_display}\n"
+                        f"- **Eligibility**: {opp.applicant_eligibility[:140]}...\n"
+                        f"- **Official Portal**: [{opp.provider}]({opp.official_source_url})\n\n"
+                    )
 
-            actions = [
-                {"label": "Run Readiness Diagnostic", "action": "SEND_PROMPT", "data": {"prompt": "Run full readiness diagnostic"}},
-                {"label": "Draft Proposal Outline", "action": "SEND_PROMPT", "data": {"prompt": "Draft proposal for top matched opportunity"}},
-                {"label": "Review Document Checklist", "action": "SEND_PROMPT", "data": {"prompt": "What documents do I need?"}},
-            ]
+                response_text += (
+                    "Would you like me to:\n"
+                    "- Run a **Readiness Diagnostic** to highlight any eligibility gaps?\n"
+                    "- Launch the **13-Step Application Agent** to draft validated answers?\n"
+                    "- Audit your **Document Readiness** for one of these programs?"
+                )
 
-        # 5. Save Copilot Assistant Message
+                actions = [
+                    {"label": "Run Readiness Diagnostic", "action": "SEND_PROMPT", "data": {"prompt": "Run full readiness diagnostic"}},
+                    {"label": "Draft Proposal Outline", "action": "SEND_PROMPT", "data": {"prompt": "Draft proposal for top matched opportunity"}},
+                    {"label": "Review Document Checklist", "action": "SEND_PROMPT", "data": {"prompt": "What documents do I need?"}},
+                ]
+
+        # 7. Save Copilot Assistant Message
         est_tokens = len(response_text.split())
         asst_msg_rec = CopilotMessageRecord(
             message_id=gen_id("cpm"),
@@ -497,12 +565,12 @@ class CopilotEngine:
         db.add(asst_msg_rec)
 
         # Update Session title if default
-        if session.title == "Funding Strategy Consultation" and len(user_message.strip()) > 5:
-            words = user_message.strip().split()[:5]
+        if session.title == "Funding Strategy Consultation" and len(clean_msg) > 5:
+            words = clean_msg.split()[:5]
             session.title = " ".join(words).capitalize()
         session.updated_at = utcnow()
 
-        # 6. Consume Entitlement Credits
+        # 8. Consume Entitlement Credits
         consume_copilot_credits(db, org_id, credits=1, tokens=est_tokens)
 
         db.commit()
@@ -514,6 +582,7 @@ class CopilotEngine:
             "content": response_text,
             "citations": citations,
             "actions": actions,
+            "provider_used": ai_response.provider_used,
             "tokens_used": est_tokens,
             "created_at": asst_msg_rec.created_at.isoformat(),
         }
@@ -537,61 +606,9 @@ class CopilotEngine:
         if not org or not opp:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization or opportunity not found.")
 
-        draft = {
-            "title": f"Funding Proposal: {opp.title}",
-            "organization_name": org.name,
-            "opportunity_title": opp.title,
-            "provider": opp.provider,
-            "quantum_requested": opp.amount_display,
-            "generated_at": utcnow().isoformat(),
-            "sections": [
-                {
-                    "heading": "1. Executive Summary",
-                    "content": (
-                        f"{org.name} is a {org.stage.lower()}-stage enterprise registered in Nigeria "
-                        f"specializing in {org.sector}. We are requesting {opp.amount_display} from {opp.provider} "
-                        f"to scale operations, enhance production efficiency, and expand socio-economic impact."
-                    ),
-                },
-                {
-                    "heading": "2. Problem Statement",
-                    "content": (
-                        f"The {org.sector} landscape in Nigeria faces critical structural challenges. "
-                        f"Our target market, {getattr(org, 'target_customers', 'underserved commercial segments')}, "
-                        f"currently suffers from lack of reliable supply and prohibitive costs."
-                    ),
-                },
-                {
-                    "heading": "3. Proposed Technical & Commercial Solution",
-                    "content": (
-                        f"{org.name} resolves these challenges through {getattr(org, 'products_services', 'innovative products and services')}. "
-                        f"Our business model ({getattr(org, 'business_model', 'B2B')}) enables rapid unit-economics profitability "
-                        f"while maintaining high compliance with Nigerian standards."
-                    ),
-                },
-                {
-                    "heading": "4. Budget Allocation & Use of Proceeds",
-                    "content": getattr(
-                        org,
-                        "intended_use_of_funds",
-                        "Funds will be deployed strictly into equipment procurement (65%), operational infrastructure (25%), and working capital (10%).",
-                    ),
-                },
-                {
-                    "heading": "5. Expected Impact & Job Creation",
-                    "content": (
-                        f"Over the next 24 months, this facility will enable {org.name} to increase direct employment from {org.team_size} "
-                        f"to over {org.team_size * 3} full-time skilled positions, contributing directly to Nigeria's economic diversification."
-                    ),
-                },
-            ],
-            "required_documents": opp.application_requirements or [
-                "CAC Status Report",
-                "Tax Clearance Certificate",
-                "12 Months Bank Statements",
-                "Pitch Deck",
-            ],
-        }
-
-        consume_copilot_credits(db, org_id, credits=1, tokens=600)
-        return draft
+        # Delegate to 13-step ApplicationAgent
+        return ApplicationAgent.draft_application_workflow(
+            db=db,
+            org_id=org_id,
+            opportunity_id=opportunity_id,
+        )

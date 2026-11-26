@@ -304,3 +304,67 @@ class CopilotMessageRecord(Base):
     tokens_used = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
+
+class CopilotToolExecutionRecord(Base):
+    __tablename__ = "caravan_copilot_tool_executions"
+
+    execution_id = Column(String(64), primary_key=True, default=lambda: gen_id("cte"))
+    session_id = Column(String(64), nullable=True, index=True)
+    organization_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(String(64), nullable=True, index=True)
+    tool_name = Column(String(64), nullable=False)
+    tool_args = Column(JSON, default=dict, nullable=False)
+    tool_result = Column(JSON, default=dict, nullable=False)
+    status = Column(String(32), default="SUCCESS", nullable=False)  # SUCCESS, FAILED
+    executed_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ApplicationDraftRecord(Base):
+    __tablename__ = "caravan_application_drafts"
+
+    draft_id = Column(String(64), primary_key=True, default=lambda: gen_id("drf"))
+    application_id = Column(String(64), nullable=True, index=True)
+    organization_id = Column(String(64), nullable=False, index=True)
+    opportunity_id = Column(String(64), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    executive_summary = Column(Text, default="", nullable=False)
+    problem_statement = Column(Text, default="", nullable=False)
+    solution_narrative = Column(Text, default="", nullable=False)
+    budget_breakdown = Column(JSON, default=list, nullable=False)
+    sections = Column(JSON, default=list, nullable=False)
+    validation_status = Column(String(32), default="DRAFT", nullable=False)  # DRAFT, VALIDATED, REVIEW_READY
+    validation_notes = Column(JSON, default=list, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class CopilotApprovalRecord(Base):
+    __tablename__ = "caravan_copilot_approvals"
+
+    approval_id = Column(String(64), primary_key=True, default=lambda: gen_id("appr"))
+    organization_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(64), nullable=False)  # APPLICATION_SUBMISSION, APPLICATION_DRAFT, DOCUMENT_RELEASE
+    target_id = Column(String(64), nullable=False)  # application_id or draft_id
+    status = Column(String(32), default="PENDING", nullable=False)  # PENDING, APPROVED, REJECTED
+    customer_notes = Column(Text, default="", nullable=False)
+    approval_hash = Column(String(64), nullable=True)  # Cryptographic audit hash of customer consent
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ApplicationSubmissionRecord(Base):
+    __tablename__ = "caravan_copilot_submissions"
+
+    submission_id = Column(String(64), primary_key=True, default=lambda: gen_id("subm"))
+    application_id = Column(String(64), nullable=False, index=True)
+    organization_id = Column(String(64), nullable=False, index=True)
+    opportunity_id = Column(String(64), nullable=False, index=True)
+    approval_id = Column(String(64), nullable=False, index=True)  # Explicit customer approval reference
+    submission_channel = Column(String(64), default="OFFICIAL_PORTAL", nullable=False)  # OFFICIAL_PORTAL, GUIDED_MANUAL_PACKAGE, AUTHORIZED_API
+    submission_reference = Column(String(128), nullable=False)
+    confirmation_status = Column(String(32), default="CONFIRMED", nullable=False)  # CONFIRMED, PACKAGE_PREPARED, PENDING_VERIFICATION
+    confirmation_details = Column(JSON, default=dict, nullable=False)
+    submitted_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+

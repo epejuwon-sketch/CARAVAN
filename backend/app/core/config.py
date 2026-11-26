@@ -54,6 +54,13 @@ class CaravanSettings(BaseSettings):
     SUPPORT_EMAIL: str = "support@caravanfunding.com"
     NOTIFICATIONS_ENABLED: bool = True
 
+    # AI Intelligence Provider (Google Gemini + CARAVAN Fallback)
+    GEMINI_API_KEY: str = Field(default="", alias="GEMINI_API_KEY")
+    CARAVAN_AI_MODEL: str = Field(default="gemini-2.5-flash", alias="CARAVAN_AI_MODEL")
+    CARAVAN_AI_PROVIDER: str = Field(default="gemini", alias="CARAVAN_AI_PROVIDER")  # gemini, caravan_internal, fallback
+    CARAVAN_AI_FALLBACK_ENABLED: bool = True
+
+
     @model_validator(mode="before")
     @classmethod
     def _detect_environment(cls, data: Any) -> Any:

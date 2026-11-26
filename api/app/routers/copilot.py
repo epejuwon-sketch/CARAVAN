@@ -1,9 +1,17 @@
-"""CARAVAN Standalone Platform — Business Copilot & AI Advisory Router."""
+"""CARAVAN Standalone Platform — Business Copilot & AI Advisory Router.
+
+Exposes endpoints for:
+- Conversational Copilot sessions and multi-turn chat
+- Business funding readiness diagnostics
+- 13-step Grant Application Agent drafting, approval gating, and submission
+- Document readiness audits
+- Voice interaction capabilities, transcription, and speech synthesis
+"""
 
 from __future__ import annotations
 
-from typing import Optional
-from fastapi import APIRouter, Depends, status, HTTPException
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -15,6 +23,9 @@ from app.services.copilot_service import (
     CopilotEngine,
     calculate_business_readiness,
 )
+from app.services.application_agent import ApplicationAgent
+from app.services.document_intelligence import DocumentIntelligence
+from app.services.voice_service import VoiceService
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["CARAVAN Business Copilot"])
 
@@ -31,6 +42,22 @@ class ChatMessageRequest(BaseModel):
 
 class DraftProposalRequest(BaseModel):
     opportunity_id: str
+    application_id: Optional[str] = None
+
+
+class ApproveApplicationRequest(BaseModel):
+    application_id: str
+    customer_notes: Optional[str] = ""
+
+
+class SubmitApplicationRequest(BaseModel):
+    application_id: str
+    approval_id: str
+
+
+class VoiceSynthesizeRequest(BaseModel):
+    text: str
+    voice_profile: Optional[str] = "CARAVAN_ADVISOR"
 
 
 @router.get("/sessions")
@@ -129,4 +156,95 @@ def api_draft_proposal(
         db,
         org_id=principal.organization_id,
         opportunity_id=body.opportunity_id,
+    )
+
+
+# 13-Step Application Agent Endpoints
+@router.post("/application-agent/draft", status_code=status.HTTP_201_CREATED)
+def api_application_agent_draft(
+    body: DraftProposalRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Execute Steps 1-10: Evaluate opportunity, audit documents, draft validated answers."""
+    return ApplicationAgent.draft_application_workflow(
+        db=db,
+        org_id=principal.organization_id,
+        opportunity_id=body.opportunity_id,
+        application_id=body.application_id,
+    )
+
+
+@router.post("/application-agent/approve", status_code=status.HTTP_200_OK)
+def api_application_agent_approve(
+    body: ApproveApplicationRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Step 11: Explicit Customer Approval before external submission."""
+    return ApplicationAgent.approve_application_workflow(
+        db=db,
+        org_id=principal.organization_id,
+        user_id=principal.user_id,
+        application_id=body.application_id,
+        customer_notes=body.customer_notes or "",
+    )
+
+
+@router.post("/application-agent/submit", status_code=status.HTTP_200_OK)
+def api_application_agent_submit(
+    body: SubmitApplicationRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Steps 12 & 13: Submission with explicit customer approval gating."""
+    return ApplicationAgent.submit_application_workflow(
+        db=db,
+        org_id=principal.organization_id,
+        user_id=principal.user_id,
+        application_id=body.application_id,
+        approval_id=body.approval_id,
+    )
+
+
+# Document Readiness Audit Endpoint
+@router.get("/document-readiness/{opportunity_id}")
+def api_document_readiness(
+    opportunity_id: str,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Audits customer's private vault documents against an opportunity's requirement checklist."""
+    return DocumentIntelligence.match_documents_to_requirements(
+        db=db,
+        org_id=principal.organization_id,
+        opportunity_id=opportunity_id,
+    )
+
+
+# Voice Capabilities Endpoints
+@router.get("/voice/capabilities")
+def api_voice_capabilities():
+    """Returns supported voice modes, speech-to-text codecs, and synthesis options."""
+    return VoiceService.get_voice_capabilities()
+
+
+@router.post("/voice/synthesize")
+def api_voice_synthesize(body: VoiceSynthesizeRequest):
+    """Synthesizes text content into speech metadata for client-side or audio playback."""
+    return VoiceService.synthesize_speech(text=body.text, voice_profile=body.voice_profile or "CARAVAN_ADVISOR")
+
+
+@router.post("/voice/transcribe")
+async def api_voice_transcribe(
+    file: UploadFile = File(...),
+    locale: str = Form("en-NG"),
+    principal: CaravanPrincipal = Depends(get_current_principal),
+):
+    """Speech-to-text transcription hook for voice queries."""
+    audio_bytes = await file.read()
+    return VoiceService.transcribe_audio_buffer(
+        audio_bytes=audio_bytes,
+        content_type=file.content_type or "audio/webm",
+        locale=locale,
     )
