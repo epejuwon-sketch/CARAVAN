@@ -62,6 +62,10 @@ BEGIN
     BEGIN
         EXECUTE format('GRANT caravan_app TO %I', CURRENT_USER);
         EXECUTE format('GRANT caravan_admin TO %I', CURRENT_USER);
+        IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres') THEN
+            EXECUTE 'GRANT caravan_app TO postgres';
+            EXECUTE 'GRANT caravan_admin TO postgres';
+        END IF;
     EXCEPTION WHEN OTHERS THEN
         NULL;
     END;

@@ -332,43 +332,43 @@ def set_tenant_context(
     automatically reverts on COMMIT or ROLLBACK, preventing leakage across pooled connections.
     Safely no-ops on SQLite / non-PostgreSQL dialects.
     """
-    try:
-        bind = db.get_bind()
-        if bind.dialect.name == "postgresql":
-            safe_org = (org_id or "").strip()
-            safe_user = (user_id or "").strip()
-            admin_val = "true" if is_admin else "false"
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        safe_org = (org_id or "").strip()
+        safe_user = (user_id or "").strip()
 
-            if not is_admin:
+        if not is_admin:
+            try:
+                db.execute(text("SET LOCAL ROLE caravan_app"))
+            except Exception as role_err:
+                logger.error("Failed to assume restricted database role caravan_app: %s", role_err)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Database role boundary enforcement failed.",
+                )
+            db.execute(
+                text("SELECT set_config('app.is_admin', 'false', true)"),
+            )
+        else:
+            try:
+                db.execute(text("SET LOCAL ROLE caravan_admin"))
+            except Exception:
                 try:
-                    db.execute(text("SET LOCAL ROLE caravan_app"))
+                    db.execute(text("SET LOCAL ROLE NONE"))
                 except Exception:
                     pass
-                db.execute(
-                    text("SELECT set_config('app.is_admin', 'false', true)"),
-                )
-            else:
-                try:
-                    db.execute(text("SET LOCAL ROLE caravan_admin"))
-                except Exception:
-                    try:
-                        db.execute(text("SET LOCAL ROLE NONE"))
-                    except Exception:
-                        pass
-                db.execute(
-                    text("SELECT set_config('app.is_admin', 'true', true)"),
-                )
+            db.execute(
+                text("SELECT set_config('app.is_admin', 'true', true)"),
+            )
 
-            db.execute(
-                text("SELECT set_config('app.current_org_id', :org_id, true)"),
-                {"org_id": safe_org},
-            )
-            db.execute(
-                text("SELECT set_config('app.current_user_id', :user_id, true)"),
-                {"user_id": safe_user},
-            )
-    except Exception as exc:
-        logger.debug("set_tenant_context non-blocking notice: %s", exc)
+        db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"),
+            {"org_id": safe_org},
+        )
+        db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": safe_user},
+        )
 
 
 def _execute_migrations():

@@ -360,7 +360,9 @@ def api_request_account_deletion(
         except Exception:
             pass
 
-    # 2. Mark uploaded documents as soft-deleted and trigger storage cleanup
+    # 2. Mark uploaded documents as soft-deleted and trigger physical storage shredding
+    from app.services.storage_service import get_storage_service
+    storage = get_storage_service()
     docs = db.execute(
         select(DocumentMetadataRecord).where(
             DocumentMetadataRecord.organization_id == principal.organization_id
@@ -369,6 +371,11 @@ def api_request_account_deletion(
     for d in docs:
         d.deleted_at = now
         d.scan_status = "PURGED"
+        try:
+            storage.delete_document(principal.organization_id, d.doc_id)
+        except Exception as storage_err:
+            import logging
+            logging.getLogger("caravan").warning("Physical document shred notice for %s: %s", d.doc_id, storage_err)
 
     # 3. Clear application drafts and saved opportunity bookmarks
     drafts = db.execute(

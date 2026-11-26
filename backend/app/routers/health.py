@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.permissions import CaravanPrincipal, require_privileged_monitoring
+from app.db.models import AuditLogRecord
 from app.db.session import (
     get_engine,
     get_storage_mode,
@@ -20,9 +24,11 @@ from app.db.session import (
     set_tenant_context,
 )
 
+logger = logging.getLogger("caravan")
+
 router = APIRouter(tags=["Health"])
 
-BUILD_COMMIT = "c3e4c62"
+BUILD_COMMIT = "b84700c"
 FRONTEND_ASSET_JS = "index-Bf58f-mF.js"
 FRONTEND_ASSET_CSS = "index-D0tK2mGH.css"
 
@@ -49,21 +55,12 @@ def _get_deployment_metadata() -> dict:
 @router.get("/api/version")
 @router.get("/api/v1/version")
 def api_version():
-    """Deployment identity and non-sensitive version reconciliation endpoint."""
-    settings = get_settings()
+    """Public version endpoint returning minimal non-sensitive application identity."""
     meta = _get_deployment_metadata()
     return {
         "service": "CARAVAN Funding Intelligence Platform",
         "version": "1.0.0-production",
         "build_commit": meta["commit"],
-        "git_commit": meta["full_commit"],
-        "vercel_deployment_id": meta["deployment_id"],
-        "frontend_assets": {
-            "js": FRONTEND_ASSET_JS,
-            "css": FRONTEND_ASSET_CSS,
-        },
-        "environment": settings.CARAVAN_ENV,
-        "deployment_target": "Vercel Serverless (Python 3.12 / ASGI)",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -72,84 +69,72 @@ def api_version():
 @router.get("/api/health")
 @router.get("/api/v1/health")
 def api_health():
-    """Production health check.
+    """Public production health check.
 
-    Verifies persistent database connectivity via SELECT 1.
-    Never exposes credentials, secrets, passwords, or stack traces.
+    Returns only minimal health status without exposing database providers, hostnames,
+    connection statistics or internal error categories.
     """
-    t0 = time.perf_counter()
-    settings = get_settings()
-
     db_connected = False
-    failure_category = None
-    target_host = None
-
     try:
         engine = get_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         db_connected = True
-    except Exception as exc:
+    except Exception:
         db_connected = False
-        err_msg = str(exc).lower()
-        if "password authentication failed" in err_msg:
-            failure_category = "password_authentication_failed"
-        elif "timeout" in err_msg or "timed out" in err_msg:
-            failure_category = "connection_timeout"
-        elif "network is unreachable" in err_msg:
-            failure_category = "network_unreachable_ipv6"
-        elif "could not translate host" in err_msg:
-            failure_category = "dns_resolution_failed"
-        elif "connection refused" in err_msg:
-            failure_category = "connection_refused"
-        else:
-            failure_category = type(exc).__name__
 
-        from sqlalchemy.engine import make_url
-        try:
-            from app.db.session import normalize_database_url
-            parsed = make_url(normalize_database_url(settings.DATABASE_URL))
-            target_host = parsed.host
-        except Exception:
-            pass
+    now_iso = datetime.now(timezone.utc).isoformat()
 
-    latency_ms = round((time.perf_counter() - t0) * 1000, 2)
-    storage_mode = get_storage_mode()
-    provider = get_sanitized_db_provider()
-
-    res = {
-        "status": "ready" if db_connected else "degraded",
-        "service": "CARAVAN Funding Intelligence Platform",
-        "version": "1.0.0-production",
-        "build_commit": BUILD_COMMIT,
-        "environment": settings.CARAVAN_ENV,
-        "database": "connected" if db_connected else "disconnected",
-        "database_provider": provider,
-        "storage_mode": storage_mode,
-        "latency_ms": latency_ms,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
     if not db_connected:
-        if failure_category:
-            res["failure_category"] = failure_category
-        if target_host:
-            res["target_host"] = target_host
         return Response(
-            content=json.dumps(res),
+            content=json.dumps({
+                "status": "degraded",
+                "database": "disconnected",
+                "storage_mode": "primary_postgres",
+                "service": "CARAVAN Funding Intelligence Platform",
+                "version": "1.0.0-production",
+                "timestamp": now_iso,
+            }),
             status_code=503,
             media_type="application/json",
         )
-    return res
+
+    return {
+        "status": "healthy",
+        "service": "CARAVAN Funding Intelligence Platform",
+        "version": "1.0.0-production",
+        "timestamp": now_iso,
+    }
 
 
 @router.get("/health/database")
 @router.get("/api/health/database")
 @router.get("/api/v1/health/database")
-def api_health_database(db: Session = Depends(get_db)):
-    """Database identity, role boundaries, and native RLS verification directly from the active connection.
+def api_health_database(
+    principal: CaravanPrincipal = Depends(require_privileged_monitoring),
+    db: Session = Depends(get_db),
+):
+    """Privileged database identity, role boundaries, and native RLS verification.
 
-    Never exposes credentials, secrets, connection strings or hostnames.
+    Requires platform-admin authorization or an authenticated monitoring identity.
+    Audits access and records runtime evidence of base connection vs effective customer role.
+    Never exposes passwords, tokens, connection strings or customer data.
     """
+    logger.info("Privileged diagnostic access: actor=%s action=DIAGNOSTIC_DATABASE_AUDIT", principal.email)
+    try:
+        audit = AuditLogRecord(
+            actor=principal.email,
+            action="PRIVILEGED_DIAGNOSTIC_DATABASE",
+            resource="database:health",
+            outcome="SUCCESS",
+            details={"requester_id": principal.user_id, "role": principal.role},
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as audit_err:
+        logger.warning("Audit log write notice in api_health_database: %s", audit_err)
+        db.rollback()
+
     bind = db.get_bind()
     dialect = bind.dialect.name
     provider = get_sanitized_db_provider()
@@ -163,22 +148,20 @@ def api_health_database(db: Session = Depends(get_db)):
             "note": "Non-PostgreSQL dialect active (development/test mode).",
         }
 
-    # 1. Connection identity
+    # 1. Base connection identity (before setting customer tenant context)
     db_name = db.execute(text("SELECT current_database()")).scalar()
     srv_version = db.execute(text("SHOW server_version")).scalar()
-    sess_user = db.execute(text("SELECT session_user")).scalar()
-    curr_user = db.execute(text("SELECT current_user")).scalar()
+    base_sess_user = db.execute(text("SELECT session_user")).scalar()
+    base_curr_user = db.execute(text("SELECT current_user")).scalar()
 
-    # 2. Check current session user privileges
-    user_privs = db.execute(text("""
+    base_privs = db.execute(text("""
         SELECT rolsuper, rolbypassrls, rolcanlogin, rolcreaterole, rolcreatedb
         FROM pg_roles WHERE rolname = :rol
-    """), {"rol": sess_user}).fetchone()
-    
-    sess_user_is_super = bool(user_privs[0]) if user_privs else False
-    sess_user_has_bypassrls = bool(user_privs[1]) if user_privs else False
+    """), {"rol": base_sess_user}).fetchone()
+    base_user_is_super = bool(base_privs[0]) if base_privs else False
+    base_user_has_bypassrls = bool(base_privs[1]) if base_privs else False
 
-    # 3. Check caravan_app restricted role
+    # 2. Check caravan_app restricted role definition
     app_role_row = db.execute(text("""
         SELECT rolsuper, rolbypassrls, rolcanlogin
         FROM pg_roles WHERE rolname = 'caravan_app'
@@ -187,7 +170,7 @@ def api_health_database(db: Session = Depends(get_db)):
     caravan_app_nobypassrls = (not app_role_row[1]) if app_role_row else False
     caravan_app_nosuperuser = (not app_role_row[0]) if app_role_row else False
 
-    # 4. Check caravan_admin role
+    # 3. Check caravan_admin role definition
     admin_role_row = db.execute(text("""
         SELECT rolsuper, rolbypassrls, rolcanlogin
         FROM pg_roles WHERE rolname = 'caravan_admin'
@@ -195,12 +178,36 @@ def api_health_database(db: Session = Depends(get_db)):
     caravan_admin_exists = admin_role_row is not None
     caravan_admin_nobypassrls = (not admin_role_row[1]) if admin_role_row else False
 
-    # 5. Check if caravan_app can assume caravan_admin (must be False)
+    # 4. Check if caravan_app can assume caravan_admin (must be False)
     can_assume_admin = False
     if caravan_app_exists and caravan_admin_exists:
         can_assume_admin = bool(db.execute(text("SELECT pg_has_role('caravan_app', 'caravan_admin', 'USAGE')")).scalar())
 
-    # 6. Check migration 002 applied
+    # 5. Effective customer role runtime proof: execute set_tenant_context for synthetic customer
+    synth_org = "org_synth_audit_probe_99"
+    synth_user = f"usr_{synth_org}"
+    set_tenant_context(db, org_id=synth_org, user_id=synth_user, is_admin=False)
+    cust_sess_user = db.execute(text("SELECT session_user")).scalar()
+    cust_curr_user = db.execute(text("SELECT current_user")).scalar()
+    cust_org = db.execute(text("SELECT current_setting('app.current_org_id', true)")).scalar()
+    cust_is_admin = db.execute(text("SELECT current_setting('app.is_admin', true)")).scalar()
+
+    # Query privileges of the effective customer query role
+    effective_privs = db.execute(text("""
+        SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = :rol
+    """), {"rol": cust_curr_user}).fetchone()
+    cust_role_is_super = bool(effective_privs[0]) if effective_privs else False
+    cust_role_has_bypassrls = bool(effective_privs[1]) if effective_privs else False
+
+    # 6. Verify connection-pool rollback & revert behavior
+    db.rollback()
+    revert_sess_user = db.execute(text("SELECT session_user")).scalar()
+    revert_curr_user = db.execute(text("SELECT current_user")).scalar()
+    revert_org = db.execute(text("SELECT current_setting('app.current_org_id', true)")).scalar() or ""
+
+    pool_reversion_verified = (revert_curr_user == base_curr_user and revert_org == "")
+
+    # 7. Check migration 002 applied
     mig_002_row = db.execute(text("""
         SELECT migration_id, applied_at
         FROM caravan_schema_migrations
@@ -209,7 +216,7 @@ def api_health_database(db: Session = Depends(get_db)):
     mig_002_applied = mig_002_row is not None
     mig_002_applied_at = mig_002_row[1].isoformat() if (mig_002_row and mig_002_row[1]) else None
 
-    # 7. Check 14 tables RLS enabled & forced
+    # 8. Check 14 tables RLS enabled & forced
     tenant_tables = [
         "caravan_organizations", "caravan_users", "caravan_eligibility_assessments",
         "caravan_applications", "caravan_documents", "caravan_saved_opportunities",
@@ -231,28 +238,46 @@ def api_health_database(db: Session = Depends(get_db)):
             "rls_forced": bool(r[2]),
         }
 
-    total_tables_checked = len(tenant_tables)
+    total_tables_checked = len(table_rls_status)
     tables_enabled_count = sum(1 for v in table_rls_status.values() if v["rls_enabled"])
     tables_forced_count = sum(1 for v in table_rls_status.values() if v["rls_forced"])
 
-    # 8. Check policies enforcing admin role check
+    # 9. Verify policies check admin role
     policy_rows = db.execute(text("""
-        SELECT tablename, policyname, (qual LIKE '%caravan_admin%') AS has_admin_role_check
+        SELECT tablename, policyname, qual
         FROM pg_policies
-        WHERE schemaname = 'public'
-        ORDER BY tablename;
-    """)).fetchall()
-    role_checked_policy_count = sum(1 for p in policy_rows if p[2])
+        WHERE tablename = ANY(:tables);
+    """), {"tables": tenant_tables}).fetchall()
+
+    role_checked_policy_count = sum(1 for p in policy_rows if "caravan_admin" in (p[2] or ""))
 
     return {
         "status": "ready",
         "database_provider": provider,
         "database_name": db_name,
         "server_version": srv_version,
-        "active_session_user": sess_user,
-        "active_current_user": curr_user,
-        "session_user_is_superuser": sess_user_is_super,
-        "session_user_has_bypassrls": sess_user_has_bypassrls,
+        "base_connection": {
+            "session_user": base_sess_user,
+            "current_user": base_curr_user,
+            "is_superuser": base_user_is_super,
+            "has_bypassrls": base_user_has_bypassrls,
+        },
+        "effective_customer_role_proof": {
+            "observed_session_user": cust_sess_user,
+            "observed_current_user": cust_curr_user,
+            "effective_role_is_caravan_app": (cust_curr_user == "caravan_app"),
+            "effective_role_nobypassrls": (not cust_role_has_bypassrls),
+            "effective_role_nosuperuser": (not cust_role_is_super),
+            "app_current_org_id_set": bool(cust_org == synth_org),
+            "app_is_admin_flag": cust_is_admin,
+            "query_executes_under_caravan_app": bool(cust_curr_user == "caravan_app" and not cust_role_has_bypassrls),
+        },
+        "connection_pool_isolation": {
+            "reverted_after_transaction": pool_reversion_verified,
+            "post_rollback_current_user": revert_curr_user,
+            "post_rollback_org_id_cleared": (revert_org == ""),
+            "connection_reuse_leakage_prevented": pool_reversion_verified,
+        },
         "caravan_app_role": {
             "exists": caravan_app_exists,
             "has_nobypassrls": caravan_app_nobypassrls,
@@ -280,14 +305,37 @@ def api_health_database(db: Session = Depends(get_db)):
             "admin_role_checked_policies_count": role_checked_policy_count,
             "all_policies_enforce_admin_role_check": (role_checked_policy_count >= 14),
         },
+        "overall_role_enforcement_status": "VERIFIED" if (cust_curr_user == "caravan_app" and pool_reversion_verified and tables_forced_count == 14) else "FAILED",
     }
 
 
 @router.get("/health/tenant-isolation-audit")
 @router.get("/api/health/tenant-isolation-audit")
 @router.get("/api/v1/health/tenant-isolation-audit")
-def api_tenant_isolation_audit(db: Session = Depends(get_db)):
-    """Non-destructive tenant isolation and boundary audit against the live database connection."""
+def api_tenant_isolation_audit(
+    principal: CaravanPrincipal = Depends(require_privileged_monitoring),
+    db: Session = Depends(get_db),
+):
+    """Privileged non-destructive tenant isolation and boundary audit against the live database connection.
+
+    Requires platform-admin authorization or an authenticated monitoring identity.
+    Audits access and executes synthetic read-only probe across all 14 tables.
+    """
+    logger.info("Privileged diagnostic access: actor=%s action=DIAGNOSTIC_TENANT_ISOLATION_AUDIT", principal.email)
+    try:
+        audit = AuditLogRecord(
+            actor=principal.email,
+            action="PRIVILEGED_DIAGNOSTIC_TENANT_ISOLATION",
+            resource="database:rls_audit",
+            outcome="SUCCESS",
+            details={"requester_id": principal.user_id, "role": principal.role},
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as audit_err:
+        logger.warning("Audit log write notice in api_tenant_isolation_audit: %s", audit_err)
+        db.rollback()
+
     bind = db.get_bind()
     dialect = bind.dialect.name
     if dialect != "postgresql":
@@ -302,7 +350,7 @@ def api_tenant_isolation_audit(db: Session = Depends(get_db)):
         }
 
     results = {}
-    
+
     # 1. Missing context check (must fail closed to 0 rows)
     set_tenant_context(db, org_id="", user_id="", is_admin=False)
     results["missing_context_orgs_returned"] = db.execute(text("SELECT count(*) FROM caravan_organizations")).scalar()
@@ -312,7 +360,7 @@ def api_tenant_isolation_audit(db: Session = Depends(get_db)):
     synth_org = "org_synth_audit_probe_99"
     synth_user = f"usr_{synth_org}"
     set_tenant_context(db, org_id=synth_org, user_id=synth_user, is_admin=False)
-    
+
     tables_to_check = [
         "caravan_organizations", "caravan_users", "caravan_applications",
         "caravan_application_drafts", "caravan_documents", "caravan_saved_opportunities",
@@ -348,6 +396,9 @@ def api_tenant_isolation_audit(db: Session = Depends(get_db)):
     except Exception:
         results["admin_bypass_strictly_blocked"] = True
 
+    # Revert session cleanly
+    db.rollback()
+
     results["overall_isolation_status"] = "VERIFIED" if (results["all_14_tables_isolated"] and results["admin_bypass_strictly_blocked"]) else "FAILED"
     return results
 
@@ -355,15 +406,37 @@ def api_tenant_isolation_audit(db: Session = Depends(get_db)):
 @router.get("/health/rate-limiter-audit")
 @router.get("/api/health/rate-limiter-audit")
 @router.get("/api/v1/health/rate-limiter-audit")
-def api_rate_limiter_audit():
-    """Controlled verification of rate limiter fail-closed outage behavior."""
+def api_rate_limiter_audit(
+    principal: CaravanPrincipal = Depends(require_privileged_monitoring),
+    db: Session = Depends(get_db),
+):
+    """Controlled verification of rate limiter fail-closed outage behavior.
+
+    Requires platform-admin authorization or an authenticated monitoring identity.
+    Audits access and executes isolated simulated cache store failure.
+    """
+    logger.info("Privileged diagnostic access: actor=%s action=DIAGNOSTIC_RATE_LIMITER_AUDIT", principal.email)
+    try:
+        audit = AuditLogRecord(
+            actor=principal.email,
+            action="PRIVILEGED_DIAGNOSTIC_RATE_LIMITER",
+            resource="rate_limiter:outage_test",
+            outcome="SUCCESS",
+            details={"requester_id": principal.user_id, "role": principal.role},
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as audit_err:
+        logger.warning("Audit log write notice in api_rate_limiter_audit: %s", audit_err)
+        db.rollback()
+
     from app.core.rate_limit import DistributedRateLimiter, SENSITIVE_RATE_LIMIT_ENDPOINTS
-    
+
     limiter = DistributedRateLimiter()
     sensitive_caught_503 = False
     retry_after_val = None
     detail_msg = None
-    
+
     try:
         limiter._atomic_consume(
             bucket_key="ip:127.0.0.1:auth:login",

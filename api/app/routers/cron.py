@@ -55,6 +55,8 @@ def trigger_daily_discovery_cron(
     """Trigger the autonomous daily institutional funding discovery cycle."""
     logger.info("Initiating autonomous daily funding discovery cycle via cron trigger...")
     try:
+        from app.db.session import set_tenant_context
+        set_tenant_context(db, org_id="org_system_cron", user_id="svc_caravan_cron", is_admin=True)
         results = DailyDiscoveryScheduler.execute_daily_cycle(db, actor="CRON:VERCEL_DAILY_DISCOVERY")
         return {
             "status": "COMPLETED",
@@ -78,6 +80,8 @@ def trigger_continuous_monitoring_cron(
     """Trigger continuous lifecycle monitoring: status recalibration and deadline approaching alerts."""
     logger.info("Initiating continuous lifecycle monitoring cycle via cron trigger...")
     try:
+        from app.db.session import set_tenant_context
+        set_tenant_context(db, org_id="org_system_cron", user_id="svc_caravan_cron", is_admin=True)
         results = DiscoveryEngine.monitor_continuous_lifecycle(db, actor="CRON:CONTINUOUS_MONITOR")
         return {
             "status": "COMPLETED",

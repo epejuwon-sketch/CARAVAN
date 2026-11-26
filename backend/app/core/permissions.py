@@ -363,3 +363,55 @@ def verify_ultron_bridge(
         set_tenant_context(db, org_id="org_ultron_master", user_id="svc_ultron_operations", is_admin=True)
     return principal
 
+
+def require_privileged_monitoring(
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    x_ultron_bridge_key: Optional[str] = Header(None, alias="X-Ultron-Bridge-Key"),
+    db: Session = Depends(get_db),
+) -> CaravanPrincipal:
+    """Dependency protecting detailed diagnostics, tenant-isolation probes, and rate-limiter tests.
+
+    Requires either:
+    1. An authenticated platform administrator (PLATFORM_ADMIN, SUPER_ADMIN, ADMIN) or principal with admin:audit, OR
+    2. An internal monitoring identity verified via X-Ultron-Bridge-Key.
+    Rejects signed-out visitors with 401 and ordinary customers with 403.
+    """
+    settings = get_settings()
+
+    # 1. Check internal monitoring bridge key first if provided
+    if x_ultron_bridge_key:
+        configured_key = settings.ULTRON_BRIDGE_API_KEY.strip()
+        if configured_key and secrets.compare_digest(x_ultron_bridge_key.strip(), configured_key):
+            principal = CaravanPrincipal(
+                user_id="svc_ultron_monitoring",
+                organization_id="org_ultron_master",
+                email="monitoring@ultron.internal",
+                role="ULTRON_BRIDGE",
+                permissions=ROLE_PERMISSIONS["ULTRON_BRIDGE"],
+            )
+            if db is not None:
+                from app.db.session import set_tenant_context
+                set_tenant_context(db, org_id="org_ultron_master", user_id="svc_ultron_monitoring", is_admin=True)
+            return principal
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired monitoring credentials.",
+        )
+
+    # 2. Check standard bearer authentication
+    if not auth or not auth.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required for privileged diagnostic access.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    principal = get_current_principal(auth=auth, db=db)
+    if not (principal.is_admin or "admin:audit" in principal.permissions or "admin:telemetry" in principal.permissions):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Platform administrator privileges required.",
+        )
+    return principal
+
+
