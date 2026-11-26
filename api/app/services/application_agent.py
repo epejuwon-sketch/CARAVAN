@@ -688,3 +688,350 @@ class ApplicationAgent:
                 else "Application submitted externally via authorized provider API."
             ),
         }
+
+    @staticmethod
+    def get_customer_journey(
+        db: Session,
+        org_id: str,
+        opportunity_id: str,
+        application_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Provides the complete 8-stage customer funding journey state:
+        DISCOVER → MATCH → UNDERSTAND → PREPARE → REVIEW → APPROVE → SUBMIT → TRACK.
+        """
+        # 1. Resolve Opportunity
+        opp = db.execute(
+            select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == opportunity_id)
+        ).scalar_one_or_none()
+        if not opp:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Opportunity '{opportunity_id}' not found.")
+
+        # 2. Resolve Organization
+        org = db.execute(
+            select(OrganizationRecord).where(OrganizationRecord.org_id == org_id)
+        ).scalar_one_or_none()
+        if not org:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization record not found.")
+
+        # 3. Locate ApplicationRecord if any
+        app_rec = None
+        if application_id:
+            app_rec = db.execute(
+                select(ApplicationRecord).where(
+                    ApplicationRecord.application_id == application_id,
+                    ApplicationRecord.organization_id == org_id,
+                )
+            ).scalar_one_or_none()
+        if not app_rec:
+            app_rec = db.execute(
+                select(ApplicationRecord).where(
+                    ApplicationRecord.organization_id == org_id,
+                    ApplicationRecord.opportunity_id == opportunity_id,
+                ).order_by(ApplicationRecord.updated_at.desc())
+            ).scalars().first()
+
+        # 4. Resolve Draft, Approval, Submission
+        draft_rec = None
+        approval_rec = None
+        sub_rec = None
+
+        if app_rec:
+            draft_rec = db.execute(
+                select(ApplicationDraftRecord).where(
+                    ApplicationDraftRecord.application_id == app_rec.application_id,
+                    ApplicationDraftRecord.organization_id == org_id,
+                ).order_by(ApplicationDraftRecord.created_at.desc())
+            ).scalars().first()
+
+            if draft_rec:
+                approval_rec = db.execute(
+                    select(CopilotApprovalRecord).where(
+                        CopilotApprovalRecord.organization_id == org_id,
+                        CopilotApprovalRecord.target_id == draft_rec.draft_id,
+                        CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                    ).order_by(CopilotApprovalRecord.approved_at.desc())
+                ).scalars().first()
+
+            sub_rec = db.execute(
+                select(ApplicationSubmissionRecord).where(
+                    ApplicationSubmissionRecord.application_id == app_rec.application_id,
+                    ApplicationSubmissionRecord.organization_id == org_id,
+                ).order_by(ApplicationSubmissionRecord.submitted_at.desc())
+            ).scalars().first()
+
+        # 5. Evaluate Eligibility & Document Vault
+        elig = evaluate_eligibility(db, org_id=org_id, opportunity_id=opportunity_id)
+        doc_audit = DocumentIntelligence.match_documents_to_requirements(db, org_id=org_id, opportunity_id=opportunity_id)
+
+        # 6. Identify Missing Business Information (Profile fields)
+        missing_fields = []
+        if not org.cac_registered:
+            missing_fields.append("CAC Corporate Registration")
+        if not org.sector:
+            missing_fields.append("Primary Industry Sector")
+        if not org.target_customers:
+            missing_fields.append("Target Customer Demographics")
+        if not org.products_services:
+            missing_fields.append("Core Commercial Offerings")
+        if not getattr(org, "business_model", ""):
+            missing_fields.append("Commercial Business Model")
+        if getattr(org, "annual_revenue_ngn", 0) <= 0:
+            missing_fields.append("Annual Operating Revenue (NGN)")
+
+        # 7. Map Stages
+        # DISCOVER
+        stage_discover = {
+            "stage_id": "DISCOVER",
+            "name": "Discover",
+            "sequence": 1,
+            "status": "COMPLETED",
+            "summary": f"Verified opportunity '{opp.title}' identified.",
+            "data": {
+                "opportunity_id": opp.opportunity_id,
+                "title": opp.title,
+                "provider": opp.provider,
+                "funding_type": opp.funding_type,
+                "amount_display": opp.amount_display,
+                "deadline_at": opp.deadline_at.isoformat() if opp.deadline_at else "Rolling",
+                "official_source_url": opp.official_source_url,
+            },
+        }
+
+        # MATCH
+        stage_match = {
+            "stage_id": "MATCH",
+            "name": "Match",
+            "sequence": 2,
+            "status": "COMPLETED",
+            "summary": f"Algorithmic match score: {elig['match_score']}/100 ({elig['eligibility_category']}).",
+            "data": {
+                "match_score": elig["match_score"],
+                "eligibility_category": elig["eligibility_category"],
+                "eligibility_status": elig.get("eligibility_status", "CONFIRMED"),
+                "eligibility_confidence": elig.get("eligibility_confidence", "CONFIRMED"),
+                "confirmed_criteria": elig.get("confirmed_criteria", []),
+                "likely_criteria": elig.get("likely_criteria", []),
+                "unknown_criteria": elig.get("unknown_criteria", []),
+                "is_disqualified": elig.get("is_disqualified", False),
+                "disqualifications": elig.get("disqualifications", []),
+            },
+        }
+
+        # UNDERSTAND
+        stage_understand = {
+            "stage_id": "UNDERSTAND",
+            "name": "Understand",
+            "sequence": 3,
+            "status": "COMPLETED" if not missing_fields else "ACTION_REQUIRED",
+            "summary": "Mandatory criteria explained. " + (
+                f"{len(missing_fields)} profile field(s) require completion." if missing_fields else "All primary criteria confirmed."
+            ),
+            "data": {
+                "missing_profile_fields": missing_fields,
+                "required_documents_list": opp.application_requirements or [],
+                "important_conditions": getattr(opp, "important_conditions", ""),
+                "clarification_needed": bool(missing_fields),
+            },
+        }
+
+        # PREPARE
+        has_docs = len(doc_audit.get("matched_documents", [])) > 0
+        prepare_status = "COMPLETED" if draft_rec else ("IN_PROGRESS" if has_docs else "ACTION_REQUIRED")
+        stage_prepare = {
+            "stage_id": "PREPARE",
+            "name": "Prepare",
+            "sequence": 4,
+            "status": prepare_status,
+            "summary": (
+                f"Application drafted (Draft ID: {draft_rec.draft_id})." if draft_rec
+                else f"Vault audit: {doc_audit['satisfied_count']}/{doc_audit['total_requirements']} documents verified."
+            ),
+            "data": {
+                "has_draft": bool(draft_rec),
+                "draft_id": draft_rec.draft_id if draft_rec else None,
+                "satisfied_documents_count": doc_audit.get("satisfied_count", 0),
+                "missing_documents": doc_audit.get("missing_documents", []),
+                "matched_documents": doc_audit.get("matched_documents", []),
+                "vault_readiness_pct": doc_audit.get("readiness_pct", 0),
+            },
+        }
+
+        # REVIEW
+        review_status = (
+            "READY_FOR_REVIEW" if (draft_rec and draft_rec.validation_status in ("READY_FOR_REVIEW", "INCOMPLETE_ADMIN_OVERRIDE"))
+            else ("INCOMPLETE" if draft_rec else "PENDING_DRAFT")
+        )
+        stage_review = {
+            "stage_id": "REVIEW",
+            "name": "Review",
+            "sequence": 5,
+            "status": review_status,
+            "summary": (
+                "Application validated and ready for customer review." if review_status == "READY_FOR_REVIEW"
+                else (f"Dossier incomplete: {'; '.join(draft_rec.validation_notes)}" if draft_rec and draft_rec.validation_notes else "Draft review pending.")
+            ),
+            "data": {
+                "validation_status": draft_rec.validation_status if draft_rec else "NOT_DRAFTED",
+                "validation_notes": draft_rec.validation_notes if draft_rec else [],
+                "is_complete": draft_rec.validation_status == "READY_FOR_REVIEW" if draft_rec else False,
+            },
+        }
+
+        # APPROVE
+        is_approved = bool(approval_rec and approval_rec.status in ("APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"))
+        stage_approve = {
+            "stage_id": "APPROVE",
+            "name": "Approve",
+            "sequence": 6,
+            "status": "APPROVED" if is_approved else "PENDING_APPROVAL",
+            "summary": (
+                f"Approved by {approval_rec.approval_type} ({approval_rec.approved_at.strftime('%d %b %Y')})." if is_approved
+                else "Requires explicit customer authorization before submission."
+            ),
+            "data": {
+                "is_approved": is_approved,
+                "approval_id": approval_rec.approval_id if approval_rec else None,
+                "approval_type": approval_rec.approval_type if approval_rec else None,
+                "approved_at": approval_rec.approved_at.isoformat() if approval_rec and approval_rec.approved_at else None,
+                "approval_hash": approval_rec.approval_hash if approval_rec else None,
+            },
+        }
+
+        # SUBMIT
+        stage_submit = {
+            "stage_id": "SUBMIT",
+            "name": "Submit",
+            "sequence": 7,
+            "status": sub_rec.confirmation_status if sub_rec else ("READY_TO_SUBMIT" if is_approved else "LOCKED"),
+            "summary": (
+                f"Package prepared with reference {sub_rec.submission_reference}." if sub_rec and sub_rec.confirmation_status == "PACKAGE_PREPARED"
+                else (f"Submitted externally via {sub_rec.submission_channel}." if sub_rec and sub_rec.confirmation_status == "SUBMITTED_EXTERNALLY"
+                else ("Authorization granted. Ready for submission package generation." if is_approved else "Locked pending customer approval."))
+            ),
+            "data": {
+                "submission_id": sub_rec.submission_id if sub_rec else None,
+                "submission_reference": sub_rec.submission_reference if sub_rec else None,
+                "confirmation_status": sub_rec.confirmation_status if sub_rec else "PENDING",
+                "submission_channel": sub_rec.submission_channel if sub_rec else "GUIDED_MANUAL_PACKAGE",
+                "official_portal_url": opp.official_application_url or opp.official_source_url,
+            },
+        }
+
+        # TRACK
+        stage_track = {
+            "stage_id": "TRACK",
+            "name": "Track",
+            "sequence": 8,
+            "status": "TRACKING_ACTIVE" if sub_rec else "PRE_SUBMISSION",
+            "summary": (
+                f"Application tracked: {app_rec.status}. Reference: {sub_rec.submission_reference}." if sub_rec
+                else "Tracking will activate once application package is prepared."
+            ),
+            "data": {
+                "application_id": app_rec.application_id if app_rec else None,
+                "application_status": app_rec.status if app_rec else "NOT_STARTED",
+                "deadline_at": opp.deadline_at.isoformat() if opp.deadline_at else "Rolling",
+                "next_milestone": (
+                    "Upload package to official portal and record portal confirmation." if sub_rec and sub_rec.confirmation_status == "PACKAGE_PREPARED"
+                    else "Complete approval to finalize application package."
+                ),
+            },
+        }
+
+        stages = [
+            stage_discover,
+            stage_match,
+            stage_understand,
+            stage_prepare,
+            stage_review,
+            stage_approve,
+            stage_submit,
+            stage_track,
+        ]
+
+        # Determine current stage
+        current_stage = "DISCOVER"
+        if sub_rec:
+            current_stage = "TRACK"
+        elif is_approved:
+            current_stage = "SUBMIT"
+        elif draft_rec and review_status == "READY_FOR_REVIEW":
+            current_stage = "APPROVE"
+        elif draft_rec:
+            current_stage = "REVIEW"
+        elif has_docs:
+            current_stage = "PREPARE"
+        elif not missing_fields:
+            current_stage = "PREPARE"
+        else:
+            current_stage = "UNDERSTAND"
+
+        # Generate AURELIA guidance prompt
+        if current_stage == "UNDERSTAND":
+            guidance = f"AURELIA suggests updating {len(missing_fields)} missing business field(s) in your profile ({', '.join(missing_fields[:3])}) to maximize underwriting confidence."
+        elif current_stage == "PREPARE":
+            missing_cnt = len(doc_audit.get("missing_documents", []))
+            guidance = f"AURELIA is ready to draft your application. Please ensure {missing_cnt} missing attachment(s) are uploaded to your document vault."
+        elif current_stage == "REVIEW":
+            guidance = "AURELIA has validated your drafted responses. Review the complete application answers and checklist before proceeding to approval."
+        elif current_stage == "APPROVE":
+            guidance = "AURELIA requires your explicit customer authorization. Review the tamper-evident draft hash and approve the submission package."
+        elif current_stage == "SUBMIT":
+            guidance = "AURELIA has prepared your verified application package. Follow the guided next steps to submit via the official portal."
+        elif current_stage == "TRACK":
+            guidance = f"AURELIA is tracking your application for {opp.title}. Retain your submission reference ID for audit verification."
+        else:
+            guidance = "AURELIA is analyzing your funding options and matching your enterprise profile."
+
+        return {
+            "journey_title": "AURELIA Complete Customer Funding Journey",
+            "assistant_name": "AURELIA",
+            "descriptor": "Funding Intelligence",
+            "positioning": "Your intelligent funding partner",
+            "opportunity_id": opportunity_id,
+            "opportunity_title": opp.title,
+            "application_id": app_rec.application_id if app_rec else None,
+            "current_stage": current_stage,
+            "aurelia_guidance": guidance,
+            "stages": stages,
+        }
+
+    @staticmethod
+    def update_missing_business_info(
+        db: Session,
+        org_id: str,
+        user_id: str,
+        fields: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Allows customer to provide missing business details directly to AURELIA."""
+        org = db.execute(
+            select(OrganizationRecord).where(OrganizationRecord.org_id == org_id)
+        ).scalar_one_or_none()
+        if not org:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization record not found.")
+
+        updated_fields = {}
+        for k in ["cac_registered", "cac_registration_number", "target_customers", "products_services", "business_model", "annual_revenue_ngn", "sector", "growth_objectives"]:
+            if k in fields and fields[k] is not None:
+                setattr(org, k, fields[k])
+                updated_fields[k] = fields[k]
+
+        org.updated_at = datetime.now(timezone.utc)
+        audit = AuditLogRecord(
+            log_id=gen_id("aud"),
+            actor=user_id,
+            action="ORGANIZATION_PROFILE_UPDATED_VIA_AURELIA",
+            resource=f"ORG:{org_id}",
+            outcome="SUCCESS",
+            details={"updated_fields": list(updated_fields.keys())},
+        )
+        db.add(audit)
+        db.commit()
+        db.refresh(org)
+
+        return {
+            "status": "UPDATED",
+            "organization_id": org_id,
+            "updated_fields": updated_fields,
+            "message": f"Successfully updated {len(updated_fields)} business profile field(s) with AURELIA.",
+        }

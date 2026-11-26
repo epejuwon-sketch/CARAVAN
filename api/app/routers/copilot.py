@@ -71,6 +71,10 @@ class VoiceSynthesizeRequest(BaseModel):
     voice_profile: Optional[str] = "CARAVAN_ADVISOR"
 
 
+class UpdateProfileFieldsRequest(BaseModel):
+    fields: Dict[str, Any]
+
+
 @router.get("/sessions")
 def api_list_copilot_sessions(
     principal: CaravanPrincipal = Depends(get_current_principal),
@@ -337,4 +341,39 @@ async def api_voice_transcribe(
         audio_bytes=audio_bytes,
         content_type=file.content_type or "audio/webm",
         locale=locale,
+    )
+
+
+# AURELIA 8-Stage Customer Journey Endpoints
+@router.get("/journey/{opportunity_id}")
+def api_get_customer_journey(
+    opportunity_id: str,
+    application_id: Optional[str] = None,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Returns the complete 8-stage AURELIA customer funding journey:
+    DISCOVER -> MATCH -> UNDERSTAND -> PREPARE -> REVIEW -> APPROVE -> SUBMIT -> TRACK.
+    """
+    return ApplicationAgent.get_customer_journey(
+        db=db,
+        org_id=principal.organization_id,
+        opportunity_id=opportunity_id,
+        application_id=application_id,
+    )
+
+
+@router.post("/journey/{opportunity_id}/update-profile")
+def api_update_journey_profile(
+    opportunity_id: str,
+    body: UpdateProfileFieldsRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Allows customer to provide missing business details directly via AURELIA to advance journey."""
+    return ApplicationAgent.update_missing_business_info(
+        db=db,
+        org_id=principal.organization_id,
+        user_id=principal.user_id,
+        fields=body.fields,
     )

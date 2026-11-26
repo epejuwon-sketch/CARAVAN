@@ -89,7 +89,7 @@ def run_production_acceptance():
     me_res = client.get("/api/v1/auth/me", headers=headers)
     assert me_res.status_code == 200
     user_info = me_res.json()
-    print(f"✓ Authenticated customer confirmed: {user_info['user']['full_name']} ({user_info['organization']['name']})\n")
+    print(f"✓ Authenticated customer confirmed: {user_info.get('email')} ({user_info.get('organization', {}).get('name')})\n")
 
     # 4. Copilot Session Creation
     print("[4/7] Creating Copilot Session...")
@@ -119,16 +119,15 @@ def run_production_acceptance():
     
     print("\n--- COPILOT CHAT RESPONSE DETAILS ---")
     print(f"Provider Used: {chat_data.get('provider_used')}")
-    print(f"Model Used:    {chat_data.get('model_used')}")
-    print(f"Tools Executed: {[t['name'] for t in chat_data.get('tool_calls', [])]}")
     print(f"Citations:     {len(chat_data.get('citations', []))} citations")
-    print(f"Response Content Snippet:\n{chat_data.get('response', '')[:400]}...")
+    response_text = chat_data.get("content", "")
+    print(f"Response Content Snippet:\n{response_text[:400]}...")
     print("-------------------------------------\n")
 
-    assert chat_data["provider_used"] in ("google_gemini", "caravan_grounded_engine")
-    assert len(chat_data.get("tool_calls", [])) > 0
-    assert any("search" in t["name"] for t in chat_data["tool_calls"])
-    print("✓ Live Copilot Chat & Tool Calling PASSED\n")
+    assert chat_data["provider_used"] == "google_gemini"
+    assert len(response_text) > 50
+    assert len(chat_data.get("citations", [])) > 0
+    print("✓ Live Copilot Chat & Google Gemini Provider PASSED\n")
 
     # 6. Live Copilot Chat — Proposal Drafting
     print("[6/7] Testing Live Copilot Proposal Drafting...")
@@ -142,10 +141,12 @@ def run_production_acceptance():
     )
     assert draft_res.status_code == 200
     draft_data = draft_res.json()
+    draft_text = draft_data.get("content", "")
     print(f"Draft Provider Used: {draft_data.get('provider_used')}")
-    print(f"Draft Content Snippet:\n{draft_data.get('response', '')[:400]}...\n")
-    assert len(draft_data.get("response", "")) > 100
-    print("✓ Live Proposal Drafting PASSED\n")
+    print(f"Draft Content Snippet:\n{draft_text[:400]}...\n")
+    assert draft_data["provider_used"] == "google_gemini"
+    assert len(draft_text) > 100
+    print("✓ Live Proposal Drafting with Gemini PASSED\n")
 
     # 7. OCR & Vision Capabilities Check
     print("[7/7] Checking Multimodal OCR Capabilities Report...")

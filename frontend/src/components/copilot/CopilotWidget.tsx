@@ -165,9 +165,10 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
           message_id: "init_welcome",
           role: "ASSISTANT",
           content:
-            "**Welcome to CARAVAN Copilot.**\n\nI am your institutional funding consultant and grant application preparation assistant. I can:\n- Discover verified funding opportunities tailored to your sector\n- Assess your business eligibility against official criteria\n- Audit your private document vault for mandatory attachments\n- Draft structured, high-probability grant applications (13-step workflow)",
+            "**Welcome to AURELIA Funding Intelligence.**\n\nI am your intelligent funding partner on CARAVAN. I guide you through the complete funding lifecycle:\n**DISCOVER → MATCH → UNDERSTAND → PREPARE → REVIEW → APPROVE → SUBMIT → TRACK**\n\nI can:\n- Search verified institutional funding opportunities\n- Evaluate confirmed vs. unknown eligibility criteria\n- Clarify missing profile details and audit required documents\n- Draft validated application answers with cryptographic approval gating",
           citations: [],
           actions: [
+            { label: "8-Stage Journey", action: "SEND_PROMPT", data: { prompt: "Explain the 8-stage funding journey and where my business stands" } },
             { label: "Discover Grants", action: "SEND_PROMPT", data: { prompt: "What verified grants are available for my business?" } },
             { label: "Readiness Diagnostic", action: "SEND_PROMPT", data: { prompt: "Run full business readiness diagnostic" } },
             { label: "Document Audit", action: "SEND_PROMPT", data: { prompt: "Audit my document checklist" } },
@@ -176,7 +177,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         },
       ]);
     } catch (err: any) {
-      setErrorMsg(err.message || "Could not start new conversation");
+      setErrorMsg(err.message || "Could not start new conversation with AURELIA");
     } finally {
       setLoading(false);
     }
@@ -194,7 +195,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
           {
             message_id: "init_empty",
             role: "ASSISTANT",
-            content: "How can I assist your funding discovery or grant preparation today?",
+            content: "How can AURELIA assist your funding journey today?",
             actions: [
               { label: "Find Opportunities", action: "SEND_PROMPT", data: { prompt: "Show verified opportunities for my sector" } },
               { label: "Check Readiness Score", action: "SEND_PROMPT", data: { prompt: "What is my business readiness score?" } },
@@ -262,7 +263,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         window.speechSynthesis.speak(utterance);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "Copilot is momentarily busy. Please click Retry.");
+      setErrorMsg(err.message || "AURELIA is momentarily busy. Please click Retry.");
     } finally {
       setLoading(false);
     }
@@ -341,7 +342,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
             fontSize: 13,
             transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
-          title="Open CARAVAN AI Copilot"
+          title="Open AURELIA Funding Intelligence"
         >
           <div
             style={{
@@ -365,7 +366,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
               }}
             />
           </div>
-          <span>Ask Copilot</span>
+          <span>Ask AURELIA</span>
         </button>
       )}
 
@@ -420,7 +421,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-                    CARAVAN Copilot
+                    AURELIA
                   </span>
                   <span
                     style={{
@@ -437,7 +438,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                  Institutional Funding Consultant
+                  Funding Intelligence · Your intelligent funding partner
                 </div>
               </div>
             </div>
@@ -527,6 +528,50 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                 <X size={16} />
               </button>
             </div>
+          </div>
+
+          {/* 8-Stage Funding Journey Ribbon */}
+          <div
+            style={{
+              padding: "7px 12px",
+              backgroundColor: "rgba(198, 157, 73, 0.08)",
+              borderBottom: "1px solid rgba(198, 157, 73, 0.2)",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              overflowX: "auto",
+              whiteSpace: "nowrap",
+              fontSize: 10,
+              fontWeight: 700,
+            }}
+          >
+            {[
+              { id: "DISCOVER", label: "1. Discover" },
+              { id: "MATCH", label: "2. Match" },
+              { id: "UNDERSTAND", label: "3. Understand" },
+              { id: "PREPARE", label: "4. Prepare" },
+              { id: "REVIEW", label: "5. Review" },
+              { id: "APPROVE", label: "6. Approve" },
+              { id: "SUBMIT", label: "7. Submit" },
+              { id: "TRACK", label: "8. Track" },
+            ].map((st, i) => (
+              <span
+                key={st.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  backgroundColor: "rgba(255, 255, 255, 0.04)",
+                  color: "var(--accent-gold-bright)",
+                  border: "1px solid rgba(198, 157, 73, 0.25)",
+                }}
+              >
+                {st.label}
+                {i < 7 && <span style={{ color: "var(--text-muted)", marginLeft: 2 }}>→</span>}
+              </span>
+            ))}
           </div>
 
           {/* Body */}
@@ -711,7 +756,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                     }}
                   >
                     <div className="spinner" style={{ width: 14, height: 14, border: "2px solid var(--accent-gold)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                    <span>Analyzing CARAVAN verified registry...</span>
+                    <span>AURELIA is analysing your funding options...</span>
                   </div>
                 )}
 
@@ -857,7 +902,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                       handleSendMessage();
                     }
                   }}
-                  placeholder={isListening ? "Listening to your voice..." : "Ask about grants, eligibility, documents..."}
+                  placeholder={isListening ? "Listening to your voice..." : "Ask AURELIA about opportunities, criteria, documents..."}
                   rows={1}
                   style={{
                     flex: 1,

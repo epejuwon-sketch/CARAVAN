@@ -221,6 +221,27 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "Final funding approval, credit underwriting, and award selection are made exclusively by the official program provider."
     )
 
+    if is_disqualified:
+        elig_status = "DISQUALIFIED"
+        elig_conf = "CONFIRMED"
+    elif unknown_criteria and len(unknown_criteria) >= 2:
+        elig_status = "UNKNOWN"
+        elig_conf = "UNKNOWN"
+    elif final_score >= 75.0:
+        elig_status = "CONFIRMED"
+        elig_conf = "CONFIRMED"
+    elif final_score >= 45.0:
+        elig_status = "LIKELY"
+        elig_conf = "LIKELY"
+    else:
+        elig_status = "INELIGIBLE"
+        elig_conf = "CONFIRMED"
+
+    likely_criteria_list = []
+    for k, v in breakdown.items():
+        if isinstance(v, dict) and v.get("matched") == "partial":
+            likely_criteria_list.append(v.get("reason", f"Partial alignment on {k}"))
+
     breakdown_payload = {
         **breakdown,
         "breakdown": breakdown,
@@ -231,6 +252,10 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "satisfied_criteria": strengths,
         "missing_criteria": missing_requirements,
         "unknown_criteria": unknown_criteria,
+        "confirmed_criteria": strengths,
+        "likely_criteria": likely_criteria_list,
+        "eligibility_status": elig_status,
+        "eligibility_confidence": elig_conf,
         "why_unavailable": why_unavailable,
         "next_steps": next_steps,
         "disclaimer": disclaimer,
@@ -277,11 +302,15 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "match_score": final_score,
         "recommendation_level": recommendation,
         "eligibility_category": eligibility_category,
+        "eligibility_status": elig_status,
+        "eligibility_confidence": elig_conf,
         "criteria_breakdown": breakdown_payload,
         "is_disqualified": is_disqualified,
         "disqualifications": disqualifications,
         "strengths": strengths,
         "satisfied_criteria": strengths,
+        "confirmed_criteria": strengths,
+        "likely_criteria": likely_criteria_list,
         "missing_requirements": missing_requirements,
         "missing_criteria": missing_requirements,
         "unknown_criteria": unknown_criteria,

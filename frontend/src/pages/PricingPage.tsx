@@ -21,7 +21,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "3 eligibility evaluations / month",
         "1 active application workspace",
         "5 saved opportunities bookmark limit",
-        "20 CARAVAN Copilot prompt credits / month",
+        "20 AURELIA prompt credits / month",
         "Weekly intelligence digests",
       ],
       cta: "Start Free",
@@ -39,7 +39,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "Unlimited eligibility match scoring",
         "3 active application pipelines",
         "25 saved opportunities bookmark limit",
-        "100 CARAVAN Copilot prompt credits / month",
+        "100 AURELIA prompt credits / month",
         "Export readiness & eligibility reports",
         "Document checklist tracking",
       ],
@@ -57,7 +57,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "All Emerging Founder features",
         "15 active application pipelines",
         "100 saved opportunities bookmark limit",
-        "500 CARAVAN Copilot prompt credits / month",
+        "500 AURELIA prompt credits / month",
         "AI proposal outline drafting assistance",
         "Team workspace (up to 3 collaborator seats)",
         "Priority support response",
@@ -76,7 +76,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "All Scaling Venture features",
         "50 active application pipelines",
         "500 saved opportunities bookmark limit",
-        "2,000 CARAVAN Copilot prompt credits / month",
+        "2,000 AURELIA prompt credits / month",
         "Concessionary debt & DFI facility tracking",
         "Multi-organization portfolio management",
         "5 collaborator seats & dedicated onboarding",
@@ -95,7 +95,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         "All Institutional Scale features",
         "Unlimited application pipelines",
         "Unlimited saved opportunities",
-        "10,000 CARAVAN Copilot prompt credits / month",
+        "10,000 AURELIA prompt credits / month",
         "Unlimited portfolio company workspaces",
         "Team workspace (up to 25 collaborator seats)",
         "API access for private dealflow integration",
@@ -113,7 +113,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
       features: [
         "Bespoke national or regional funding directories",
         "Sovereign data residency & on-premise deployments",
-        "Unlimited Copilot credits & fine-tuned models",
+        "Unlimited AURELIA credits & fine-tuned models",
         "Multi-stakeholder review committees",
         "SLA guarantee & custom audit logging",
         "Dedicated relationship director",
@@ -227,7 +227,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
             </thead>
             <tbody>
               <tr style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                <td style={{ padding: "10px", fontWeight: 600 }}>Copilot Prompt Credits</td>
+                <td style={{ padding: "10px", fontWeight: 600 }}>AURELIA Prompt Credits</td>
                 <td style={{ padding: "10px" }}>20 / mo</td>
                 <td style={{ padding: "10px" }}>100 / mo</td>
                 <td style={{ padding: "10px" }}>500 / mo</td>

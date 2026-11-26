@@ -314,9 +314,9 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
               <Sparkles size={17} color="#C69D49" />
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF" }}>CARAVAN Copilot</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF" }}>AURELIA</div>
               <div className="muted" style={{ fontSize: 11 }}>
-                Institutional Funding &amp; Eligibility Intelligence
+                Funding Intelligence · Your intelligent funding partner
               </div>
             </div>
           </div>
@@ -339,6 +339,50 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
           </div>
         </header>
 
+        {/* 8-Stage Funding Journey Ribbon */}
+        <div
+          style={{
+            padding: "8px 24px",
+            backgroundColor: "rgba(198, 157, 73, 0.08)",
+            borderBottom: "1px solid rgba(198, 157, 73, 0.2)",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            overflowX: "auto",
+            whiteSpace: "nowrap",
+            fontSize: 11,
+            fontWeight: 700,
+          }}
+        >
+          {[
+            { id: "DISCOVER", label: "1. Discover" },
+            { id: "MATCH", label: "2. Match" },
+            { id: "UNDERSTAND", label: "3. Understand" },
+            { id: "PREPARE", label: "4. Prepare" },
+            { id: "REVIEW", label: "5. Review" },
+            { id: "APPROVE", label: "6. Approve" },
+            { id: "SUBMIT", label: "7. Submit" },
+            { id: "TRACK", label: "8. Track" },
+          ].map((st, i) => (
+            <span
+              key={st.id}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 8px",
+                borderRadius: 4,
+                backgroundColor: "rgba(255, 255, 255, 0.04)",
+                color: "var(--accent-gold-bright)",
+                border: "1px solid rgba(198, 157, 73, 0.25)",
+              }}
+            >
+              {st.label}
+              {i < 7 && <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>→</span>}
+            </span>
+          ))}
+        </div>
+
         {/* Message Thread */}
         <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px", display: "flex", flexDirection: "column", gap: 20 }}>
           {messages.length === 0 && (
@@ -359,10 +403,10 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
                 <Sparkles size={26} color="#C69D49" />
               </div>
               <h2 style={{ fontSize: 22, fontWeight: 800, color: "#FFFFFF" }}>
-                Welcome to CARAVAN Business Copilot
+                Welcome to AURELIA Funding Intelligence
               </h2>
               <p className="muted" style={{ fontSize: 13, lineHeight: 1.6 }}>
-                I am your institutional funding co-pilot. I analyze your business profile, match verified African &amp; global opportunities, diagnose eligibility gaps, and draft application outlines with zero hallucination.
+                I am AURELIA, your intelligent funding partner on CARAVAN. I guide you across our 8-stage funding journey (Discover → Match → Understand → Prepare → Review → Approve → Submit → Track), analyze your business profile, evaluate eligibility gaps, and draft validated applications with zero hallucination.
               </p>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 8 }}>
@@ -413,7 +457,7 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
               >
                 <div className="row" style={{ gap: 6, marginBottom: 8, fontSize: 11, color: "var(--text-muted)" }}>
                   {m.role === "USER" ? <User size={13} /> : <Bot size={13} color="var(--accent-gold-bright)" />}
-                  <span>{m.role === "USER" ? "You" : "CARAVAN Copilot"}</span>
+                  <span>{m.role === "USER" ? "You" : "AURELIA"}</span>
                 </div>
                 {m.content}
 
@@ -481,7 +525,7 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
           {loading && (
             <div className="row" style={{ gap: 8, color: "var(--accent-gold-bright)", fontSize: 13, paddingLeft: 8 }}>
               <Sparkles size={16} className="spin" />
-              <span>CARAVAN Copilot is synthesizing verified institutional records...</span>
+              <span>AURELIA is analysing your funding options...</span>
             </div>
           )}
 
@@ -506,7 +550,7 @@ export const CopilotPage: React.FC<CopilotPageProps> = ({ onNavigate }) => {
             <input
               type="text"
               className="input"
-              placeholder="Ask Copilot: 'What grants match my business stage?', 'Assess my readiness', 'Draft proposal outline'..."
+              placeholder="Ask AURELIA: 'What grants match my business stage?', 'Assess my eligibility', 'Draft proposal outline'..."
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
               disabled={loading}

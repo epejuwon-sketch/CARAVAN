@@ -110,7 +110,7 @@ export const PortalLayout: React.FC<PortalLayoutProps> = ({
               onClick={() => onNavigate("copilot")}
             >
               <Sparkles size={18} />
-              <span>AI Copilot</span>
+              <span>AURELIA</span>
             </button>
 
             <button

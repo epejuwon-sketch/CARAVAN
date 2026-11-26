@@ -115,11 +115,11 @@ export const BillingPage: React.FC = () => {
           </div>
 
           <div className="grid-4" style={{ gap: 16 }}>
-            {/* Copilot Credits */}
+            {/* AURELIA Credits */}
             <div style={{ backgroundColor: "var(--bg-secondary)", padding: "16px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
               <div className="row-between">
                 <span className="row" style={{ gap: 6, fontSize: 12, color: "var(--text-secondary)" }}>
-                  <Sparkles size={14} color="var(--accent-gold-bright)" /> Copilot Credits
+                  <Sparkles size={14} color="var(--accent-gold-bright)" /> AURELIA Credits
                 </span>
                 <span className="mono gold-text" style={{ fontSize: 13, fontWeight: 700 }}>
                   {usage.quotas.copilot_credits.used} / {usage.quotas.copilot_credits.limit}
