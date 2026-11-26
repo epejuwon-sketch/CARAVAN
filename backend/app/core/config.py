@@ -33,6 +33,14 @@ class CaravanSettings(BaseSettings):
     # Database
     DATABASE_URL: str = Field(default="sqlite:///./caravan.db", alias="DATABASE_URL")
 
+    # Document Storage Engine (Supabase Cloud Storage / Local Private Vault)
+    STORAGE_BACKEND: str = Field(default="auto", alias="STORAGE_BACKEND")  # auto, supabase, local
+    SUPABASE_URL: str = Field(default="", alias="SUPABASE_URL")
+    SUPABASE_SERVICE_ROLE_KEY: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    SUPABASE_STORAGE_BUCKET: str = Field(default="caravan-vault", alias="SUPABASE_STORAGE_BUCKET")
+    DOCUMENT_MAX_SIZE_BYTES: int = Field(default=15 * 1024 * 1024, alias="DOCUMENT_MAX_SIZE_BYTES")  # 15MB
+    SIGNED_URL_EXPIRY_SECONDS: int = Field(default=900, alias="SIGNED_URL_EXPIRY_SECONDS")  # 15 mins
+
     # Security & Auth (Exclusively from environment variables in production)
     JWT_SECRET_KEY: str = Field(default="caravan-ephemeral-dev-jwt-key-not-for-production", alias="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = "HS256"
