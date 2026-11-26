@@ -181,6 +181,16 @@ def list_opportunities(
         count_stmt = count_stmt.where(and_(*filters))
     total = db.execute(count_stmt).scalar() or 0
 
+    if total == 0 and not filters:
+        try:
+            from app.seed_data import seed_caravan_opportunities
+            seeded = seed_caravan_opportunities(db)
+            if seeded > 0:
+                records = db.execute(stmt).scalars().all()
+                total = db.execute(count_stmt).scalar() or 0
+        except Exception:
+            pass
+
     return {
         "total": total,
         "categories": FUNDING_CATEGORIES,
@@ -192,6 +202,15 @@ def get_opportunity_detail(db: Session, opportunity_id: str) -> dict:
     r = db.execute(
         select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == opportunity_id)
     ).scalar_one_or_none()
+    if not r:
+        try:
+            from app.seed_data import seed_caravan_opportunities
+            seed_caravan_opportunities(db)
+            r = db.execute(
+                select(FundingOpportunityRecord).where(FundingOpportunityRecord.opportunity_id == opportunity_id)
+            ).scalar_one_or_none()
+        except Exception:
+            pass
     if not r:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
