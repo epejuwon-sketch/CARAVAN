@@ -370,6 +370,9 @@ class ApplicationSubmissionRecord(Base):
     submission_reference = Column(String(128), nullable=False)
     confirmation_status = Column(String(32), default="CONFIRMED", nullable=False)  # CONFIRMED, PACKAGE_PREPARED, PENDING_VERIFICATION
     confirmation_details = Column(JSON, default=dict, nullable=False)
+    official_portal_url = Column(String(500), nullable=True)
+    guided_manual_steps = Column(JSON, default=list, nullable=False)
+    payload_snapshot = Column(JSON, default=dict, nullable=False)
     submitted_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

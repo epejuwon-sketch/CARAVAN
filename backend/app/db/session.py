@@ -364,11 +364,16 @@ def _execute_migrations():
                     submission_channel VARCHAR(64) NOT NULL DEFAULT 'OFFICIAL_PORTAL',
                     submission_reference VARCHAR(128) NOT NULL,
                     confirmation_status VARCHAR(64) NOT NULL DEFAULT 'PACKAGE_PREPARED',
+                    confirmation_details JSON NOT NULL DEFAULT '{}',
                     official_portal_url VARCHAR(500),
                     guided_manual_steps JSON NOT NULL DEFAULT '[]',
                     payload_snapshot JSON NOT NULL DEFAULT '{}',
                     submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )""",
+                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS confirmation_details JSON DEFAULT '{}'",
+                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS official_portal_url VARCHAR(500)",
+                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS guided_manual_steps JSON DEFAULT '[]'",
+                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS payload_snapshot JSON DEFAULT '{}'",
                 """CREATE TABLE IF NOT EXISTS caravan_copilot_sessions (
                     session_id VARCHAR(64) PRIMARY KEY,
                     organization_id VARCHAR(64) NOT NULL,

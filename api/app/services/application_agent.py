@@ -205,6 +205,26 @@ class ApplicationAgent:
             app_rec.checklist_progress = doc_audit.get("matched_documents", [])
             app_rec.updated_at = now
 
+        # Invalidate/supersede unsubmitted approvals for this application when a new draft is created
+        try:
+            prior_approvals = db.execute(
+                select(CopilotApprovalRecord).where(
+                    CopilotApprovalRecord.organization_id == org_id,
+                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                )
+            ).scalars().all()
+            for p in prior_approvals:
+                if p.target_type == "APPLICATION_DRAFT":
+                    has_sub = db.execute(
+                        select(ApplicationSubmissionRecord.submission_id).where(
+                            ApplicationSubmissionRecord.approval_id == p.approval_id
+                        )
+                    ).first()
+                    if not has_sub:
+                        p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
+        except Exception as e:
+            logger.warning("Could not supersede prior approvals on draft creation: %s", e)
+
         # Save ApplicationDraftRecord
         draft_hash = _compute_draft_hash(
             title=f"Application: {opp.title}",
@@ -229,28 +249,6 @@ class ApplicationAgent:
             validation_notes=validation_notes,
         )
         db.add(draft_rec)
-
-        # Invalidate/supersede unsubmitted approvals for this application when a new draft is created
-        try:
-            prior_approvals = db.execute(
-                select(CopilotApprovalRecord).where(
-                    CopilotApprovalRecord.organization_id == org_id,
-                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-                )
-            ).scalars().all()
-            for p in prior_approvals:
-                if p.target_type == "APPLICATION_DRAFT":
-                    has_sub = db.execute(
-                        select(ApplicationSubmissionRecord).where(
-                            ApplicationSubmissionRecord.approval_id == p.approval_id
-                        )
-                    ).first()
-                    if not has_sub:
-                        p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
-        except Exception as e:
-            db.rollback()
-            logger.warning("Could not supersede prior approvals on draft creation: %s", e)
-
         db.commit()
         db.refresh(draft_rec)
 
@@ -1078,7 +1076,7 @@ class ApplicationAgent:
                 ).scalars().all()
                 for appr in pending_approvals:
                     has_submission = db.execute(
-                        select(ApplicationSubmissionRecord).where(
+                        select(ApplicationSubmissionRecord.submission_id).where(
                             ApplicationSubmissionRecord.approval_id == appr.approval_id
                         )
                     ).first()
@@ -1086,7 +1084,6 @@ class ApplicationAgent:
                         appr.status = "INVALIDATED_PROFILE_MODIFIED"
                         invalidated_count += 1
             except Exception as e:
-                db.rollback()
                 logger.warning("Could not query or invalidate approvals: %s", e)
 
         audit = AuditLogRecord(
