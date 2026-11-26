@@ -18,7 +18,7 @@ from app.db.models import (
     AuditLogRecord,
     utcnow,
 )
-from app.services.discovery_service import DiscoveryEngine
+from app.services.discovery_service import DiscoveryEngine, DailyDiscoveryScheduler
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Operations"])
 
@@ -271,6 +271,15 @@ def api_admin_intelligence_scan(
 ):
     """Trigger continuous discovery crawler scan across institutional channels."""
     return DiscoveryEngine.run_discovery_scan(db, actor=f"ADMIN:{principal.email or principal.user_id}")
+
+
+@router.post("/intelligence/daily-run")
+def api_admin_intelligence_daily_run(
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Trigger full autonomous daily funding discovery cycle across all monitored institutional registries."""
+    return DailyDiscoveryScheduler.execute_daily_cycle(db, actor=f"ADMIN:{principal.email or principal.user_id}")
 
 
 @router.get("/intelligence/sources")

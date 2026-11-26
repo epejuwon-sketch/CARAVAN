@@ -24,6 +24,7 @@ from app.routers import (
     admin,
     notifications,
     copilot,
+    cron,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -85,3 +86,4 @@ app.include_router(bridge.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
 app.include_router(copilot.router)
+app.include_router(cron.router)

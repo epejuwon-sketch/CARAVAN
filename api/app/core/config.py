@@ -59,6 +59,7 @@ class CaravanSettings(BaseSettings):
     CARAVAN_AI_MODEL: str = Field(default="gemini-2.5-flash", alias="CARAVAN_AI_MODEL")
     CARAVAN_AI_PROVIDER: str = Field(default="gemini", alias="CARAVAN_AI_PROVIDER")  # gemini, caravan_internal, fallback
     CARAVAN_AI_FALLBACK_ENABLED: bool = True
+    CRON_SECRET: str = Field(default="", alias="CRON_SECRET")
 
 
     @model_validator(mode="before")
