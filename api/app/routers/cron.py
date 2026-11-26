@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.services.discovery_service import DailyDiscoveryScheduler
+from app.services.discovery_service import DailyDiscoveryScheduler, DiscoveryEngine
 
 logger = logging.getLogger("caravan")
 
@@ -67,3 +67,27 @@ def trigger_daily_discovery_cron(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Daily discovery cycle failed: {str(exc)}",
         )
+
+
+@router.get("/monitoring")
+@router.post("/monitoring")
+def trigger_continuous_monitoring_cron(
+    authorized: bool = Depends(verify_cron_access),
+    db: Session = Depends(get_db),
+):
+    """Trigger continuous lifecycle monitoring: status recalibration and deadline approaching alerts."""
+    logger.info("Initiating continuous lifecycle monitoring cycle via cron trigger...")
+    try:
+        results = DiscoveryEngine.monitor_continuous_lifecycle(db, actor="CRON:CONTINUOUS_MONITOR")
+        return {
+            "status": "COMPLETED",
+            "job": "CONTINUOUS_LIFECYCLE_MONITORING",
+            "summary": results,
+        }
+    except Exception as exc:
+        logger.error("Continuous lifecycle monitoring failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Continuous lifecycle monitoring failed: {str(exc)}",
+        )
+

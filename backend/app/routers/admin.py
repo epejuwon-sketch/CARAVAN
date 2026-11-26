@@ -282,6 +282,16 @@ def api_admin_intelligence_daily_run(
     return DailyDiscoveryScheduler.execute_daily_cycle(db, actor=f"ADMIN:{principal.email or principal.user_id}")
 
 
+@router.post("/intelligence/monitor-now")
+def api_admin_intelligence_monitor_now(
+    principal: CaravanPrincipal = Depends(require_permission("opportunities:review")),
+    db: Session = Depends(get_db),
+):
+    """Trigger immediate continuous lifecycle monitoring and deadline alert check."""
+    return DiscoveryEngine.monitor_continuous_lifecycle(db, actor=f"ADMIN:{principal.email or principal.user_id}")
+
+
+
 @router.get("/intelligence/sources")
 def api_admin_intelligence_sources(
     principal: CaravanPrincipal = Depends(require_permission("admin:read")),

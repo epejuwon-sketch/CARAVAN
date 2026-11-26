@@ -8,14 +8,23 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import select, or_, func
 from sqlalchemy.orm import Session
 
-from app.db.models import FundingOpportunityRecord, AuditLogRecord, NotificationRecord, UserRecord, OrganizationRecord, gen_id, utcnow
+from app.db.models import (
+    FundingOpportunityRecord,
+    ApplicationRecord,
+    AuditLogRecord,
+    NotificationRecord,
+    UserRecord,
+    OrganizationRecord,
+    gen_id,
+    utcnow,
+)
 
 logger = logging.getLogger("caravan.discovery")
 
@@ -414,6 +423,155 @@ class DiscoveryEngine:
             db.commit()
 
         return {"checked_at": now.isoformat(), "expired_count": updated_count}
+
+    @staticmethod
+    def monitor_continuous_lifecycle(db: Session, actor: str = "CONTINUOUS_LIFECYCLE_MONITOR") -> Dict[str, Any]:
+        """Continuous monitor for opportunity deadlines, dynamic statuses, and targeted application alerts.
+        
+        Monitors:
+        1. Recalibrates opportunity statuses (OPEN, CLOSING_SOON, CLOSED, UPCOMING, ROLLING).
+        2. Detects approaching statutory deadlines (14d, 7d, 48h) for active customer application workspaces.
+        3. Dispatches deduplicated in-app deadline alert notifications.
+        4. Logs audit trail of monitor execution.
+        """
+        now = utcnow()
+        recalibrated_count = 0
+        deadline_alerts_dispatched = 0
+
+        # 1. Dynamic status recalibration across all published opportunities
+        try:
+            pub_opps = db.execute(
+                select(FundingOpportunityRecord).where(FundingOpportunityRecord.publication_status == "PUBLISHED")
+            ).scalars().all()
+
+            for opp in pub_opps:
+                old_status = opp.opportunity_status
+                new_status = old_status
+
+                if opp.is_rolling:
+                    new_status = "ROLLING"
+                elif opp.deadline_at:
+                    deadline = make_aware(opp.deadline_at)
+                    if deadline < now:
+                        new_status = "CLOSED"
+                        if opp.verification_status != "EXPIRED":
+                            opp.verification_status = "EXPIRED"
+                            opp.last_checked_at = now
+                            hist = list(opp.verification_history or [])
+                            hist.append({
+                                "timestamp": now.isoformat(),
+                                "actor": actor,
+                                "action": "STATUS_EXPIRED",
+                                "details": f"Deadline {opp.deadline_at.isoformat()} passed.",
+                            })
+                            opp.verification_history = hist
+                    elif deadline <= now + timedelta(days=14):
+                        new_status = "CLOSING_SOON"
+                    elif opp.opening_date and make_aware(opp.opening_date) > now:
+                        new_status = "UPCOMING"
+                    else:
+                        new_status = "OPEN"
+
+                if new_status != old_status:
+                    opp.opportunity_status = new_status
+                    opp.updated_at = now
+                    recalibrated_count += 1
+            if recalibrated_count > 0:
+                db.commit()
+        except Exception as recalib_err:
+            logger.warning("Error during opportunity status recalibration: %s", recalib_err)
+
+        # 2. Targeted deadline alerts for active applications (DRAFTING, DOCS_COLLECTING, REVIEW)
+        try:
+            active_apps_stmt = (
+                select(ApplicationRecord, FundingOpportunityRecord)
+                .join(FundingOpportunityRecord, ApplicationRecord.opportunity_id == FundingOpportunityRecord.opportunity_id)
+                .where(
+                    ApplicationRecord.status.in_(["DRAFTING", "DOCS_COLLECTING", "REVIEW"]),
+                    FundingOpportunityRecord.deadline_at.isnot(None),
+                    FundingOpportunityRecord.deadline_at > now,
+                    FundingOpportunityRecord.deadline_at <= now + timedelta(days=14),
+                )
+            )
+            active_app_rows = db.execute(active_apps_stmt).all()
+
+            if active_app_rows:
+                org_ids = list({app_rec.organization_id for app_rec, _ in active_app_rows if app_rec.organization_id})
+                org_users_map: Dict[str, list] = {}
+                if org_ids:
+                    all_users = db.execute(
+                        select(UserRecord).where(UserRecord.organization_id.in_(org_ids))
+                    ).scalars().all()
+                    for u in all_users:
+                        org_users_map.setdefault(u.organization_id, []).append(u)
+
+                # Preload existing deadline notifications to prevent N+1 queries
+                existing_deadline_notifs = db.execute(
+                    select(NotificationRecord.user_id, NotificationRecord.title).where(
+                        NotificationRecord.category == "DEADLINE"
+                    )
+                ).all()
+                existing_alert_keys = {(row[0], row[1]) for row in existing_deadline_notifs}
+
+                for app_rec, opp_rec in active_app_rows:
+                    deadline = make_aware(opp_rec.deadline_at)
+                    time_remaining = deadline - now
+                    hours_remaining = time_remaining.total_seconds() / 3600.0
+
+                    if hours_remaining <= 48:
+                        urgency_label = "Urgent: 48 Hours Left"
+                    elif time_remaining.days <= 7:
+                        urgency_label = "7 Days Left"
+                    else:
+                        urgency_label = "14 Days Left"
+
+                    alert_title = f"[{urgency_label}] Deadline Approaching: {opp_rec.title}"
+
+                    for u in org_users_map.get(app_rec.organization_id, []):
+                        if (u.user_id, alert_title) not in existing_alert_keys:
+                            notif = NotificationRecord(
+                                user_id=u.user_id,
+                                title=alert_title,
+                                message=(
+                                    f"Your application for '{opp_rec.title}' is closing on {deadline.strftime('%b %d, %Y')}. "
+                                    f"Please review your documents and complete submission to secure consideration."
+                                ),
+                                category="DEADLINE",
+                            )
+                            db.add(notif)
+                            existing_alert_keys.add((u.user_id, alert_title))
+                            deadline_alerts_dispatched += 1
+
+                if deadline_alerts_dispatched > 0:
+                    db.commit()
+        except Exception as alert_err:
+            logger.warning("Error during active application deadline monitoring: %s", alert_err)
+
+        # 3. Record audit trail
+        try:
+            audit = AuditLogRecord(
+                log_id=gen_id("aud"),
+                actor=actor,
+                action="CONTINUOUS_OPPORTUNITY_MONITORING_COMPLETED",
+                resource="LIFECYCLE_MONITOR",
+                outcome="SUCCESS",
+                details={
+                    "recalibrated_count": recalibrated_count,
+                    "deadline_alerts_dispatched": deadline_alerts_dispatched,
+                    "monitored_at": now.isoformat(),
+                },
+            )
+            db.add(audit)
+            db.commit()
+        except Exception as log_err:
+            logger.warning("Could not record monitoring audit log: %s", log_err)
+
+        return {
+            "status": "COMPLETED",
+            "monitored_at": now.isoformat(),
+            "recalibrated_count": recalibrated_count,
+            "deadline_alerts_dispatched": deadline_alerts_dispatched,
+        }
 
     @staticmethod
     def detect_changes_and_stage_review(
