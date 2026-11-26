@@ -22,6 +22,7 @@ from app.db.session import (
 
 router = APIRouter(tags=["Health"])
 
+BUILD_COMMIT = "c3e4c62"
 FRONTEND_ASSET_JS = "index-Bf58f-mF.js"
 FRONTEND_ASSET_CSS = "index-D0tK2mGH.css"
 
