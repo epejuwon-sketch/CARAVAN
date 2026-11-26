@@ -228,9 +228,13 @@ def add_document_metadata(
         "PITCH_DECK",
         "FINANCIALS",
         "CERTIFICATE",
+        "CAC_CERTIFICATE",
         "TAX_CLEARANCE",
+        "BANK_STATEMENTS",
+        "AUDITED_FINANCIALS",
         "AUDITED_ACCOUNTS",
         "BUSINESS_PLAN",
+        "REGULATORY_LICENSE",
         "OTHER",
     }
     clean_type = doc_type.upper().strip()
