@@ -6,7 +6,7 @@ import logging
 import os
 import urllib.parse
 from pathlib import Path
-from typing import Generator
+from typing import Generator, List
 from fastapi import HTTPException, status
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, DisconnectionError
@@ -53,7 +53,7 @@ def get_storage_mode() -> str:
 
 
 def normalize_database_url(raw_url: str) -> str:
-    """Normalizes database URLs, sanitizes query parameters, and safely quotes credentials."""
+    """Normalizes database URLs, translates direct IPv6 Supabase hosts to IPv4 poolers, and quotes credentials."""
     settings = get_settings()
     is_prod = settings.CARAVAN_ENV == "production"
 
@@ -97,6 +97,20 @@ def normalize_database_url(raw_url: str) -> str:
     from sqlalchemy.engine import make_url
     try:
         parsed = make_url(candidate)
+
+        # In serverless/IPv4 environments, convert direct Supabase hosts (db.<ref>.supabase.co)
+        # to the IPv4-routable connection pooler
+        if parsed.host and parsed.host.startswith("db.") and parsed.host.endswith(".supabase.co"):
+            ref = parsed.host[3:-len(".supabase.co")]
+            current_user = parsed.username or "postgres"
+            if not current_user.endswith(f".{ref}"):
+                current_user = f"postgres.{ref}"
+            parsed = parsed.set(
+                host="aws-1-eu-west-1.pooler.supabase.com",
+                port=6543,
+                username=current_user,
+            )
+
         if parsed.query:
             NON_LIBPQ = {
                 "pgbouncer",
@@ -118,18 +132,28 @@ def normalize_database_url(raw_url: str) -> str:
         return candidate
 
 
-def _try_alternate_pooler_port(db_url: str) -> str | None:
-    """If connecting to Supabase pooler (*.pooler.supabase.com), toggle between 5432 and 6543."""
+def _try_alternate_pooler_candidates(db_url: str) -> List[str]:
+    """Generates candidate alternate pooler URLs for Supabase (toggling 6543/5432 and aws-1/aws-0)."""
+    candidates = []
     from sqlalchemy.engine import make_url
     try:
         parsed = make_url(db_url)
         if parsed.host and "pooler.supabase.com" in parsed.host:
             current_port = parsed.port or 5432
             alt_port = 6543 if current_port == 5432 else 5432
-            return parsed.set(port=alt_port).render_as_string(hide_password=False)
+            candidates.append(parsed.set(port=alt_port).render_as_string(hide_password=False))
+
+            if "aws-1-" in parsed.host:
+                alt_host = parsed.host.replace("aws-1-", "aws-0-")
+                candidates.append(parsed.set(host=alt_host, port=alt_port).render_as_string(hide_password=False))
+                candidates.append(parsed.set(host=alt_host, port=current_port).render_as_string(hide_password=False))
+            elif "aws-0-" in parsed.host:
+                alt_host = parsed.host.replace("aws-0-", "aws-1-")
+                candidates.append(parsed.set(host=alt_host, port=alt_port).render_as_string(hide_password=False))
+                candidates.append(parsed.set(host=alt_host, port=current_port).render_as_string(hide_password=False))
     except Exception:
         pass
-    return None
+    return candidates
 
 
 def get_engine():
@@ -147,7 +171,7 @@ def get_engine():
 
     if not db_url.startswith("sqlite"):
         engine_kwargs = {"future": True}
-        connect_args = {"connect_timeout": 5}
+        connect_args = {"connect_timeout": 3}
         if is_serverless:
             from sqlalchemy.pool import NullPool
             engine_kwargs["poolclass"] = NullPool
@@ -170,9 +194,9 @@ def get_engine():
         except Exception as primary_exc:
             logger.warning("Primary database connection attempt failed: %s", type(primary_exc).__name__)
 
-            # If Supabase pooler, attempt alternate port (5432 <-> 6543)
-            alt_url = _try_alternate_pooler_port(db_url)
-            if alt_url:
+            # Try alternate pooler candidates (ports 6543/5432 and regions aws-1/aws-0)
+            alt_candidates = _try_alternate_pooler_candidates(db_url)
+            for alt_url in alt_candidates:
                 try:
                     alt_engine = create_engine(
                         alt_url,
@@ -182,10 +206,10 @@ def get_engine():
                     with alt_engine.connect() as alt_conn:
                         alt_conn.execute(text("SELECT 1"))
                     _engine = alt_engine
-                    logger.info("Connected successfully to primary PostgreSQL via alternate pooler port.")
+                    logger.info("Connected successfully to primary PostgreSQL via alternate pooler candidate.")
                     return _engine
                 except Exception as alt_exc:
-                    logger.warning("Alternate pooler port attempt failed: %s", type(alt_exc).__name__)
+                    logger.warning("Alternate pooler attempt failed: %s", type(alt_exc).__name__)
 
             # In production, NO fallback to SQLite is permitted
             _engine = None
