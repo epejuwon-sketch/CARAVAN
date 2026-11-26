@@ -342,23 +342,15 @@ def test_all_14_tenant_tables_isolation_and_attack_vectors():
     uid_a = f"usr_iso_a_{gen_id('sec')}"
     uid_b = f"usr_iso_b_{gen_id('sec')}"
 
-    # Setup seed data for both tenants under admin
-    with engine.connect() as conn:
-        with conn.begin():
-            conn.execute(text("SET LOCAL ROLE caravan_admin"))
-            conn.execute(text("SELECT set_config('app.is_admin', 'true', true)"))
-            conn.execute(text("""
-                INSERT INTO caravan_organizations (org_id, name, entity_type, country, state_location, sector)
-                VALUES (:oa, 'Org Alpha', 'STARTUP', 'Nigeria', 'Lagos', 'FinTech'),
-                       (:ob, 'Org Beta', 'STARTUP', 'Nigeria', 'Abuja', 'AgriTech')
-                ON CONFLICT (org_id) DO NOTHING;
-            """), {"oa": org_a, "ob": org_b})
-            conn.execute(text("""
-                INSERT INTO caravan_users (user_id, organization_id, email, password_hash, full_name, role)
-                VALUES (:ua, :oa, :ea, 'hash', 'Alpha User', 'CUSTOMER'),
-                       (:ub, :ob, :eb, 'hash', 'Beta User', 'CUSTOMER')
-                ON CONFLICT (user_id) DO NOTHING;
-            """), {"ua": uid_a, "oa": org_a, "ea": f"{uid_a}@iso.ng", "ub": uid_b, "ob": org_b, "eb": f"{uid_b}@iso.ng"})
+    # Setup seed data for both tenants under admin using ORM models
+    SessionLocal = get_session_factory()
+    with SessionLocal() as db:
+        set_tenant_context(db, is_admin=True)
+        db.add(OrganizationRecord(org_id=org_a, name="Org Alpha"))
+        db.add(OrganizationRecord(org_id=org_b, name="Org Beta"))
+        db.add(UserRecord(user_id=uid_a, organization_id=org_a, email=f"{uid_a}@iso.ng", password_hash="hash", full_name="Alpha User"))
+        db.add(UserRecord(user_id=uid_b, organization_id=org_b, email=f"{uid_b}@iso.ng", password_hash="hash", full_name="Beta User"))
+        db.commit()
 
     with engine.connect() as conn:
         # 1. SELECT isolation on all 14 tables
@@ -385,8 +377,14 @@ def test_all_14_tenant_tables_isolation_and_attack_vectors():
             from sqlalchemy.exc import ProgrammingError, InternalError
             with pytest.raises((ProgrammingError, InternalError)):
                 conn.execute(text("""
-                    INSERT INTO caravan_organizations (org_id, name, entity_type, country, state_location, sector)
-                    VALUES ('foreign_org', 'Foreign', 'STARTUP', 'NG', 'Lagos', 'Tech')
+                    INSERT INTO caravan_organizations (
+                        org_id, name, entity_type, country, state_location, sector,
+                        stage, annual_revenue_usd, annual_revenue_ngn, cac_registered,
+                        years_in_operation, female_led, youth_led, readiness_score
+                    ) VALUES (
+                        'foreign_org', 'Foreign', 'STARTUP', 'Nigeria', 'Lagos', 'Technology',
+                        'SEED', 0, 0, true, 1, false, true, 0
+                    )
                 """))
 
         # 5. Missing tenant context (org_id="") -> fail closed (0 rows)
