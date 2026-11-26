@@ -58,7 +58,7 @@ def api_login(body: LoginRequest, db: Session = Depends(get_db)):
         logging.getLogger("caravan").exception("Unhandled error during authentication for %s: %s", getattr(body, "email", "unknown"), exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service temporarily encountered an internal issue. Please retry.",
+            detail=f"Authentication service internal issue: {type(exc).__name__}: {exc}",
         )
 
 
