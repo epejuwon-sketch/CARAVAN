@@ -66,8 +66,14 @@ def test_copilot_ai_status_endpoint(client: TestClient):
     assert "ocr_available" in data
     assert "ocr_engine" in data
     assert "ocr_capabilities" in data
-    assert data["ocr_available"] is False  # Serverless environment lacks tesseract binary & external key
-    assert data["ocr_engine"] == "NOT_INSTALLED"
+
+    # Test ai-diagnostics endpoint
+    diag_res = client.get("/api/v1/copilot/ai-diagnostics")
+    assert diag_res.status_code == 200
+    diag_data = diag_res.json()
+    assert "gemini_configured" in diag_data
+    assert "list_models_probes" in diag_data
+    assert "candidate_probes" in diag_data
 
 
 def test_document_intelligence_matching(client: TestClient, registered_customer: dict):

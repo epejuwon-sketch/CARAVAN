@@ -84,7 +84,6 @@ class GeminiMultimodalOCRProvider(BaseOCRProvider):
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         self.api_key = api_key.strip()
         self.model = model.strip()
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
 
     def extract_document(
         self,
@@ -125,67 +124,89 @@ class GeminiMultimodalOCRProvider(BaseOCRProvider):
             },
         }
 
+        # Multi-candidate resolution
         try:
-            with httpx.Client(timeout=15.0) as client:
-                res = client.post(
-                    self.api_url,
-                    json=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self.api_key,
-                    },
-                )
-                if res.status_code == 404 and self.model != "gemini-1.5-flash":
-                    fallback_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-                    res = client.post(
-                        fallback_url,
-                        json=payload,
-                        headers={
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": self.api_key,
-                        },
-                    )
+            from app.services.ai_provider import AIProviderFactory
+            pref_model = AIProviderFactory._discovered_working_model
+            pref_auth = AIProviderFactory._discovered_auth_mode
+            pref_ver = AIProviderFactory._discovered_api_version
+        except Exception:
+            pref_model, pref_auth, pref_ver = None, "header", "v1beta"
 
-                if res.status_code != 200:
-                    logger.warning("Gemini Vision OCR returned non-200: %d", res.status_code)
-                    raise RuntimeError(f"Gemini Vision OCR error: HTTP {res.status_code}")
+        candidates = []
+        if pref_model:
+            candidates.append(pref_model)
+        for c in [self.model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]:
+            if c and c not in candidates:
+                candidates.append(c)
 
-                data = res.json()
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    raise RuntimeError("Gemini Vision returned empty candidates.")
+        auth_modes = [pref_auth] if pref_auth else []
+        for a in ["header", "query"]:
+            if a not in auth_modes:
+                auth_modes.append(a)
 
-                parts = candidates[0].get("content", {}).get("parts", [])
-                extracted_text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
+        api_versions = [pref_ver] if pref_ver else []
+        for v in ["v1beta", "v1"]:
+            if v not in api_versions:
+                api_versions.append(v)
 
-                # Detect uncertain fields (if text contains uncertainty markers)
-                uncertain = []
-                for pattern, field_name in [
-                    (r"\b(rc|bn)[\s:]*([0-9Xx\?]{4,10})", "CAC Registration Number"),
-                    (r"\b(tin)[\s:]*([0-9Xx\?]{6,12})", "Tax Identification Number (TIN)"),
-                ]:
-                    m = re.search(pattern, extracted_text, re.IGNORECASE)
-                    if m and ("x" in m.group(0).lower() or "?" in m.group(0)):
-                        uncertain.append({
-                            "field": field_name,
-                            "detected_value": m.group(0),
-                            "confidence": 0.55,
-                            "reason": "Character ambiguity in scanned image",
-                        })
+        last_error = None
+        for cand_model in candidates:
+            clean_cand = cand_model.replace("models/", "")
+            for api_ver in api_versions:
+                for auth_mode in auth_modes:
+                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_cand}:generateContent"
+                    headers = {"Content-Type": "application/json"}
+                    params = {}
+                    if auth_mode == "header":
+                        headers["x-goog-api-key"] = self.api_key
+                    else:
+                        params["key"] = self.api_key
 
-                return OCRResult(
-                    text=extracted_text,
-                    confidence_score=0.92 if not uncertain else 0.74,
-                    extraction_method="GEMINI_MULTIMODAL_VISION",
-                    provider_used="google_gemini_vision",
-                    is_ocr=True,
-                    uncertain_fields=uncertain,
-                    needs_customer_confirmation=len(uncertain) > 0,
-                )
+                    try:
+                        with httpx.Client(timeout=15.0) as client:
+                            res = client.post(url, json=payload, headers=headers, params=params)
+                            if res.status_code == 200:
+                                data = res.json()
+                                candidates_data = data.get("candidates", [])
+                                if not candidates_data:
+                                    continue
+                                parts = candidates_data[0].get("content", {}).get("parts", [])
+                                extracted_text = " ".join(p.get("text", "") for p in parts if "text" in p).strip()
 
-        except Exception as exc:
-            logger.warning("Gemini Vision OCR failed: %s", exc)
-            raise exc
+                                # Detect uncertain fields
+                                uncertain = []
+                                for pattern, field_name in [
+                                    (r"\b(rc|bn)[\s:]*([0-9Xx\?]{4,10})", "CAC Registration Number"),
+                                    (r"\b(tin)[\s:]*([0-9Xx\?]{6,12})", "Tax Identification Number (TIN)"),
+                                ]:
+                                    m = re.search(pattern, extracted_text, re.IGNORECASE)
+                                    if m and ("x" in m.group(0).lower() or "?" in m.group(0)):
+                                        uncertain.append({
+                                            "field": field_name,
+                                            "extracted_value": m.group(0),
+                                            "confidence": 0.45,
+                                            "reason": "Character ambiguity in scanned artifact",
+                                        })
+
+                                confidence = 0.95 if not uncertain else 0.70
+                                return OCRResult(
+                                    text=extracted_text,
+                                    confidence_score=confidence,
+                                    extraction_method=f"GEMINI_MULTIMODAL_VISION_{clean_cand.upper()}",
+                                    provider_used="google_gemini_vision",
+                                    is_ocr=True,
+                                    uncertain_fields=uncertain,
+                                    needs_customer_confirmation=len(uncertain) > 0,
+                                    raw_metadata={"model": clean_cand, "api_version": api_ver, "auth_mode": auth_mode},
+                                )
+                            else:
+                                last_error = f"HTTP {res.status_code}: {res.text[:150]}"
+                    except Exception as exc:
+                        last_error = str(exc)
+
+        logger.warning("Gemini Vision OCR candidate iteration failed. Last error: %s", last_error)
+        raise RuntimeError(f"Gemini Vision OCR error: {last_error}")
 
 
 class LocalTesseractOCRProvider(BaseOCRProvider):

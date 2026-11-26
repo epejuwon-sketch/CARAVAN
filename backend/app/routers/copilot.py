@@ -203,6 +203,13 @@ def api_copilot_ai_status():
     return status_data
 
 
+@router.get("/ai-diagnostics")
+def api_copilot_ai_diagnostics():
+    """Detailed diagnostics of model endpoints and capabilities without exposing secrets."""
+    from app.services.ai_provider import AIProviderFactory
+    return AIProviderFactory.diagnose_gemini()
+
+
 @router.post("/application-agent/approve", status_code=status.HTTP_200_OK)
 def api_application_agent_approve(
     body: ApproveApplicationRequest,

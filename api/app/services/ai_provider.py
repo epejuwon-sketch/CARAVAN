@@ -73,8 +73,6 @@ class GeminiAIProvider(BaseAIProvider):
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         self.api_key = api_key.strip()
         self.model = model.strip()
-        # Securely pass API key via header rather than in URL query string to prevent access log leakage
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
 
     def generate(
         self,
@@ -107,67 +105,84 @@ class GeminiAIProvider(BaseAIProvider):
                 "functionDeclarations": tools
             }]
 
-        try:
-            with httpx.Client(timeout=12.0) as client:
-                res = client.post(
-                    self.api_url,
-                    json=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": self.api_key,
-                    },
-                )
-                if res.status_code == 404 and self.model != "gemini-1.5-flash":
-                    logger.info("Model %s returned 404, falling back to gemini-1.5-flash", self.model)
-                    fallback_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
-                    res = client.post(
-                        fallback_url,
-                        json=payload,
-                        headers={
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": self.api_key,
-                        },
-                    )
+        # Candidate models and auth modes to try in priority order
+        candidates = []
+        if AIProviderFactory._discovered_working_model:
+            candidates.append(AIProviderFactory._discovered_working_model)
+        for m in [self.model, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]:
+            if m and m not in candidates:
+                candidates.append(m)
 
-                if res.status_code != 200:
-                    logger.warning("Gemini API non-200 status %d", res.status_code)
-                    raise RuntimeError(f"Gemini API returned status {res.status_code}")
+        auth_modes = [AIProviderFactory._discovered_auth_mode]
+        for a in ["header", "query"]:
+            if a not in auth_modes:
+                auth_modes.append(a)
 
-                data = res.json()
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    raise RuntimeError("Gemini returned empty candidates")
+        api_versions = ["v1beta", "v1"]
+        last_error = None
 
-                first_candidate = candidates[0]
-                parts = first_candidate.get("content", {}).get("parts", [])
+        for cand_model in candidates:
+            clean_cand = cand_model.replace("models/", "")
+            for api_ver in api_versions:
+                for auth_mode in auth_modes:
+                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_cand}:generateContent"
+                    headers = {"Content-Type": "application/json"}
+                    params = {}
+                    if auth_mode == "header":
+                        headers["x-goog-api-key"] = self.api_key
+                    else:
+                        params["key"] = self.api_key
 
-                text_content = ""
-                tool_calls = []
+                    try:
+                        with httpx.Client(timeout=12.0) as client:
+                            res = client.post(url, json=payload, headers=headers, params=params)
+                            if res.status_code == 200:
+                                # Save working configuration
+                                AIProviderFactory._discovered_working_model = clean_cand
+                                AIProviderFactory._discovered_auth_mode = auth_mode
+                                AIProviderFactory._discovered_api_version = api_ver
 
-                for p in parts:
-                    if "text" in p:
-                        text_content += p["text"]
-                    if "functionCall" in p:
-                        fc = p["functionCall"]
-                        tool_calls.append({
-                            "name": fc.get("name"),
-                            "args": fc.get("args", {}),
-                        })
+                                data = res.json()
+                                candidates_data = data.get("candidates", [])
+                                if not candidates_data:
+                                    raise RuntimeError("Gemini returned empty candidates")
 
-                usage_meta = data.get("usageMetadata", {})
-                tokens = usage_meta.get("totalTokenCount", len(text_content.split()))
+                                first_candidate = candidates_data[0]
+                                parts = first_candidate.get("content", {}).get("parts", [])
 
-                return AIProviderResponse(
-                    content=text_content,
-                    tool_calls=tool_calls,
-                    provider_used="google_gemini",
-                    model_used=self.model,
-                    tokens_used=tokens,
-                )
+                                text_content = ""
+                                tool_calls = []
 
-        except Exception as exc:
-            logger.warning("Gemini invocation failed, delegating to safe fallback: %s", exc)
-            raise exc
+                                for p in parts:
+                                    if "text" in p:
+                                        text_content += p["text"]
+                                    if "functionCall" in p:
+                                        fc = p["functionCall"]
+                                        tool_calls.append({
+                                            "name": fc.get("name"),
+                                            "args": fc.get("args", {}),
+                                        })
+
+                                usage_meta = data.get("usageMetadata", {})
+                                tokens = usage_meta.get("totalTokenCount", len(text_content.split()))
+
+                                return AIProviderResponse(
+                                    content=text_content,
+                                    tool_calls=tool_calls,
+                                    provider_used="google_gemini",
+                                    model_used=clean_cand,
+                                    tokens_used=tokens,
+                                )
+                            else:
+                                raw_err = res.text[:150]
+                                if self.api_key in raw_err:
+                                    raw_err = raw_err.replace(self.api_key, "[REDACTED_KEY]")
+                                last_error = f"{api_ver}/{clean_cand} ({auth_mode}) HTTP {res.status_code}: {raw_err}"
+                    except Exception as exc:
+                        last_error = f"{api_ver}/{clean_cand} ({auth_mode}) exception: {exc}"
+
+        logger.warning("All Gemini candidate attempts exhausted. Last error: %s", last_error)
+        raise RuntimeError(f"Gemini API invocation failed: {last_error}")
 
 
 class LocalRuleAIProvider(BaseAIProvider):
@@ -227,13 +242,18 @@ class LocalRuleAIProvider(BaseAIProvider):
 class AIProviderFactory:
     """Provider-independent factory with resilient fallback logic."""
 
+    _discovered_working_model: Optional[str] = None
+    _discovered_auth_mode: str = "header"
+    _discovered_api_version: str = "v1beta"
+
     @staticmethod
     def get_provider() -> BaseAIProvider:
         settings = get_settings()
         api_key = (settings.GEMINI_API_KEY or "").strip()
 
         if api_key and settings.CARAVAN_AI_PROVIDER == "gemini":
-            return GeminiAIProvider(api_key=api_key, model=settings.CARAVAN_AI_MODEL)
+            selected_model = AIProviderFactory._discovered_working_model or settings.CARAVAN_AI_MODEL
+            return GeminiAIProvider(api_key=api_key, model=selected_model)
 
         return LocalRuleAIProvider()
 
@@ -266,6 +286,129 @@ class AIProviderFactory:
             return resp
 
     @staticmethod
+    def diagnose_gemini() -> Dict[str, Any]:
+        """Diagnose exact endpoint availability, model listing, and candidate models without leaking secrets."""
+        settings = get_settings()
+        api_key = (settings.GEMINI_API_KEY or "").strip()
+        if not api_key:
+            return {
+                "configured": False,
+                "gemini_configured": False,
+                "error": "GEMINI_API_KEY is not configured.",
+                "list_models_probes": [],
+                "available_models": [],
+                "candidate_probes": {},
+                "working_model": None,
+            }
+
+        diag: Dict[str, Any] = {
+            "configured": True,
+            "gemini_configured": True,
+            "configured_model": settings.CARAVAN_AI_MODEL,
+            "list_models_probes": [],
+            "available_models": [],
+            "candidate_probes": {},
+            "working_model": None,
+            "working_auth_mode": None,
+            "working_api_version": None,
+        }
+
+        # Probe 1: List models via v1beta and v1, header and query
+        list_endpoints = [
+            ("v1beta_header", "https://generativelanguage.googleapis.com/v1beta/models", {"x-goog-api-key": api_key}, {}),
+            ("v1beta_query", "https://generativelanguage.googleapis.com/v1beta/models", {}, {"key": api_key}),
+            ("v1_header", "https://generativelanguage.googleapis.com/v1/models", {"x-goog-api-key": api_key}, {}),
+            ("v1_query", "https://generativelanguage.googleapis.com/v1/models", {}, {"key": api_key}),
+        ]
+
+        working_list = None
+        for name, url, headers, params in list_endpoints:
+            try:
+                with httpx.Client(timeout=4.0) as client:
+                    resp = client.get(url, headers=headers, params=params)
+                    snippet = resp.text[:250]
+                    if api_key in snippet:
+                        snippet = snippet.replace(api_key, "[REDACTED_KEY]")
+                    diag["list_models_probes"].append({
+                        "endpoint": name,
+                        "status_code": resp.status_code,
+                        "response": snippet,
+                    })
+                    if resp.status_code == 200 and not working_list:
+                        working_list = resp.json()
+            except Exception as exc:
+                diag["list_models_probes"].append({
+                    "endpoint": name,
+                    "error": str(exc),
+                })
+
+        if working_list and "models" in working_list:
+            for m in working_list.get("models", []):
+                m_name = m.get("name", "")
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    diag["available_models"].append({
+                        "name": m_name,
+                        "displayName": m.get("displayName", ""),
+                        "supportedMethods": methods,
+                    })
+
+        # Probe 2: Test candidate models
+        candidates = [
+            settings.CARAVAN_AI_MODEL,
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.5-flash",
+        ]
+        # Include any models from ListModels that support generateContent
+        for am in diag["available_models"]:
+            clean_am = am["name"].replace("models/", "")
+            if clean_am not in candidates:
+                candidates.append(clean_am)
+
+        seen = set()
+        dedup_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
+
+        for cand in dedup_candidates:
+            clean_cand = cand.replace("models/", "")
+            cand_results = {}
+            for api_ver in ("v1beta", "v1"):
+                for auth_mode in ("header", "query"):
+                    mode_key = f"{api_ver}_{auth_mode}"
+                    url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_cand}:generateContent"
+                    headers = {"Content-Type": "application/json"}
+                    params = {}
+                    if auth_mode == "header":
+                        headers["x-goog-api-key"] = api_key
+                    else:
+                        params["key"] = api_key
+
+                    payload = {"contents": [{"parts": [{"text": "Hello"}]}]}
+                    try:
+                        with httpx.Client(timeout=4.0) as client:
+                            resp = client.post(url, json=payload, headers=headers, params=params)
+                            snippet = resp.text[:200]
+                            if api_key in snippet:
+                                snippet = snippet.replace(api_key, "[REDACTED_KEY]")
+                            cand_results[mode_key] = {
+                                "status_code": resp.status_code,
+                                "response": snippet,
+                            }
+                            if resp.status_code == 200 and not diag["working_model"]:
+                                diag["working_model"] = clean_cand
+                                diag["working_auth_mode"] = auth_mode
+                                diag["working_api_version"] = api_ver
+                                AIProviderFactory._discovered_working_model = clean_cand
+                                AIProviderFactory._discovered_auth_mode = auth_mode
+                                AIProviderFactory._discovered_api_version = api_ver
+                    except Exception as exc:
+                        cand_results[mode_key] = {"error": str(exc)}
+            diag["candidate_probes"][clean_cand] = cand_results
+
+        return diag
+
+    @staticmethod
     def get_status() -> Dict[str, Any]:
         """Returns live AI provider diagnostics without leaking secrets."""
         settings = get_settings()
@@ -277,38 +420,25 @@ class AIProviderFactory:
         live_probe_status = "NOT_CONFIGURED"
         probe_detail = "GEMINI_API_KEY is not configured in environment variables. Local Grounded Engine is active."
         is_healthy = False
+        working_model = None
 
         if gemini_configured and provider == "gemini":
-            try:
-                with httpx.Client(timeout=4.0) as client:
-                    probe_res = client.post(
-                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                        json={"contents": [{"parts": [{"text": "CARAVAN diagnostic ping"}]}]},
-                        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-                    )
-                    if probe_res.status_code == 404 and model != "gemini-1.5-flash":
-                        probe_res = client.post(
-                            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-                            json={"contents": [{"parts": [{"text": "CARAVAN diagnostic ping"}]}]},
-                            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-                        )
-
-                    if probe_res.status_code == 200:
-                        is_healthy = True
-                        live_probe_status = "HEALTHY"
-                        probe_detail = "Live handshake confirmed: Google Gemini API is answering queries successfully."
-                    elif probe_res.status_code in (400, 401, 403):
-                        live_probe_status = f"AUTHENTICATION_FAILED_HTTP_{probe_res.status_code}"
-                        probe_detail = f"Google API returned HTTP {probe_res.status_code} (check API key validity and Generative Language API enablement)."
-                    elif probe_res.status_code == 429:
-                        live_probe_status = "RATE_LIMITED_HTTP_429"
-                        probe_detail = "Google Generative Language API quota exceeded or rate limited."
-                    else:
-                        live_probe_status = f"ERROR_HTTP_{probe_res.status_code}"
-                        probe_detail = f"Google API returned HTTP {probe_res.status_code} during status probe."
-            except Exception as exc:
-                live_probe_status = "TIMEOUT_OR_NETWORK_ERROR"
-                probe_detail = f"Could not reach Google Gemini endpoint: {exc.__class__.__name__}"
+            diag = AIProviderFactory.diagnose_gemini()
+            working_model = diag.get("working_model")
+            if working_model:
+                is_healthy = True
+                live_probe_status = "HEALTHY"
+                probe_detail = f"Live handshake confirmed: Google Gemini API is answering queries successfully using model '{working_model}'."
+            else:
+                cand_probes = diag.get("candidate_probes", {})
+                last_err = "No working model or endpoint found."
+                for k, v in cand_probes.items():
+                    for mode, r in v.items():
+                        if "response" in r and "error" in r["response"].lower():
+                            last_err = r["response"]
+                            break
+                live_probe_status = "PROBE_FAILED"
+                probe_detail = f"Diagnostic probe: {last_err}"
 
         active_provider = "google_gemini" if is_healthy else "caravan_grounded_engine"
 
@@ -317,6 +447,7 @@ class AIProviderFactory:
             "configured_provider": provider,
             "configured_model": model,
             "active_provider": active_provider,
+            "active_model": working_model or (model if is_healthy else "caravan-rule-retrieval-v1"),
             "fallback_active": not is_healthy,
             "live_probe_status": live_probe_status,
             "reason": probe_detail,
