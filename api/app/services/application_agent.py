@@ -753,6 +753,7 @@ class ApplicationAgent:
                         ).order_by(CopilotApprovalRecord.approved_at.desc())
                     ).scalars().first()
                 except Exception:
+                    db.rollback()
                     approval_rec = None
 
             try:
@@ -763,6 +764,7 @@ class ApplicationAgent:
                     ).order_by(ApplicationSubmissionRecord.submitted_at.desc())
                 ).scalars().first()
             except Exception:
+                db.rollback()
                 sub_rec = None
 
         # 5. Evaluate Eligibility & Document Vault

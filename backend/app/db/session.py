@@ -337,6 +337,75 @@ def _execute_migrations():
                 "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_details JSON DEFAULT '{}'",
                 "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS sha256_hash VARCHAR(64)",
                 "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+                # copilot tables (idempotent creation)
+                """CREATE TABLE IF NOT EXISTS caravan_copilot_approvals (
+                    approval_id VARCHAR(64) PRIMARY KEY,
+                    organization_id VARCHAR(64) NOT NULL,
+                    user_id VARCHAR(64) NOT NULL,
+                    target_type VARCHAR(64) NOT NULL,
+                    target_id VARCHAR(64) NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+                    approval_type VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER_APPROVAL',
+                    authorizer_role VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER',
+                    authorizer_user_id VARCHAR(64),
+                    override_reason TEXT NOT NULL DEFAULT '',
+                    remaining_gaps JSON NOT NULL DEFAULT '[]',
+                    customer_notes TEXT NOT NULL DEFAULT '',
+                    approval_hash VARCHAR(64),
+                    approved_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS caravan_copilot_submissions (
+                    submission_id VARCHAR(64) PRIMARY KEY,
+                    application_id VARCHAR(64) NOT NULL,
+                    organization_id VARCHAR(64) NOT NULL,
+                    opportunity_id VARCHAR(64) NOT NULL,
+                    approval_id VARCHAR(64) NOT NULL,
+                    submission_channel VARCHAR(64) NOT NULL DEFAULT 'OFFICIAL_PORTAL',
+                    submission_reference VARCHAR(128) NOT NULL,
+                    confirmation_status VARCHAR(64) NOT NULL DEFAULT 'PACKAGE_PREPARED',
+                    official_portal_url VARCHAR(500),
+                    guided_manual_steps JSON NOT NULL DEFAULT '[]',
+                    payload_snapshot JSON NOT NULL DEFAULT '{}',
+                    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS caravan_copilot_sessions (
+                    session_id VARCHAR(64) PRIMARY KEY,
+                    organization_id VARCHAR(64) NOT NULL,
+                    user_id VARCHAR(64) NOT NULL,
+                    title VARCHAR(255) NOT NULL DEFAULT 'New Conversation',
+                    context_mode VARCHAR(64) NOT NULL DEFAULT 'GENERAL',
+                    active_opportunity_id VARCHAR(64),
+                    active_application_id VARCHAR(64),
+                    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS caravan_copilot_messages (
+                    message_id VARCHAR(64) PRIMARY KEY,
+                    session_id VARCHAR(64) NOT NULL,
+                    sender VARCHAR(32) NOT NULL,
+                    content TEXT NOT NULL,
+                    citations JSON NOT NULL DEFAULT '[]',
+                    actions JSON NOT NULL DEFAULT '[]',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""",
+                """CREATE TABLE IF NOT EXISTS caravan_application_drafts (
+                    draft_id VARCHAR(64) PRIMARY KEY,
+                    application_id VARCHAR(64) NOT NULL,
+                    organization_id VARCHAR(64) NOT NULL,
+                    opportunity_id VARCHAR(64) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    executive_summary TEXT NOT NULL DEFAULT '',
+                    problem_statement TEXT NOT NULL DEFAULT '',
+                    solution_narrative TEXT NOT NULL DEFAULT '',
+                    budget_breakdown JSON NOT NULL DEFAULT '[]',
+                    sections JSON NOT NULL DEFAULT '[]',
+                    validation_status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+                    validation_notes JSON NOT NULL DEFAULT '[]',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""",
             ]
             for stmt in migration_statements:
                 try:
