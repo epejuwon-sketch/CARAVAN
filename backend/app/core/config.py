@@ -61,6 +61,10 @@ class CaravanSettings(BaseSettings):
     CARAVAN_AI_FALLBACK_ENABLED: bool = True
     CRON_SECRET: str = Field(default="", alias="CRON_SECRET")
 
+    # Bot Protection & Anti-Abuse
+    CLOUDFLARE_TURNSTILE_SECRET_KEY: str = Field(default="", alias="CLOUDFLARE_TURNSTILE_SECRET_KEY")
+    RATE_LIMIT_ENABLED: bool = True
+
 
     @model_validator(mode="before")
     @classmethod

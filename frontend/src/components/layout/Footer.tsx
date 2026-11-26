@@ -51,12 +51,22 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
               <strong style={{ fontSize: 12, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                Company
+                Company &amp; Legal
               </strong>
-              <button type="button" className="muted" style={{ textAlign: "left" }} onClick={() => onNavigate("about")}>About</button>
-              <button type="button" className="muted" style={{ textAlign: "left" }} onClick={() => onNavigate("legal-privacy")}>Privacy & Security</button>
-              <button type="button" className="muted" style={{ textAlign: "left" }} onClick={() => onNavigate("contact")}>Contact</button>
-              <button type="button" className="muted" style={{ textAlign: "left" }} onClick={() => onNavigate("support")}>Support</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("about")}>About</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("privacy")}>Privacy Policy (NDPA)</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("terms")}>Terms of Service</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("refund")}>Refund Policy</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("cookies")}>Cookie Policy</button>
+              <button type="button" className="muted" style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => onNavigate("operator")}>Operator Information</button>
+              <button
+                type="button"
+                className="muted"
+                style={{ textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--accent-gold-bright)" }}
+                onClick={() => window.dispatchEvent(new CustomEvent("open-cookie-preferences"))}
+              >
+                Cookie Preferences
+              </button>
             </div>
           </div>
         </div>
@@ -72,7 +82,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           }}
         >
           <div className="muted">
-            &copy; 2026 CARAVAN Platform. All rights reserved.
+            &copy; 2026 CARAVAN Capital Intelligence Ltd. All rights reserved. &middot; <span className="mono" style={{ fontSize: 11 }}>Zero Fabricated Opportunities</span>
           </div>
           <div className="row" style={{ gap: 20, color: "var(--text-muted)", fontSize: 12 }}>
             <span className="row" style={{ gap: 5 }}><Lock size={12} /> TLS 1.3 Encryption</span>

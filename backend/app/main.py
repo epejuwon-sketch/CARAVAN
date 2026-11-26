@@ -63,14 +63,42 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS Middleware
+# CORS Middleware with strict origin allowlist
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permits Vercel previews & custom domains
+    allow_origins=settings.CARAVAN_CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Enforces standard defensive HTTP security headers on all responses."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(self)"
+    if "Strict-Transport-Security" not in response.headers:
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https:; "
+        "frame-src https://challenges.cloudflare.com; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
+    )
+    response.headers["Content-Security-Policy"] = csp
+    return response
 
 # Include Routers
 app.include_router(health.router)

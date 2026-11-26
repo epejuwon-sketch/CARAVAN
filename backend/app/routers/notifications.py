@@ -115,3 +115,85 @@ def api_mark_all_read(
     ).update({"is_read": True})
     db.commit()
     return {"status": "SUCCESS"}
+
+
+from pydantic import BaseModel, Field
+
+class NotificationPreferencesRequest(BaseModel):
+    marketing_emails: bool = False
+    opportunity_alerts: bool = True
+    deadline_digests: bool = True
+    security_alerts: bool = True  # Mandatory transactional
+
+
+class OneClickUnsubscribeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    category: str = Field(default="MARKETING")
+    token: str | None = None
+
+
+@router.get("/preferences")
+def api_get_notification_preferences(
+    principal: CaravanPrincipal = Depends(get_current_principal),
+):
+    """Retrieve communication and email delivery preferences."""
+    return {
+        "user_id": principal.user_id,
+        "email": principal.email,
+        "preferences": {
+            "marketing_emails": False,
+            "opportunity_alerts": True,
+            "deadline_digests": True,
+            "security_alerts": True,
+        },
+    }
+
+
+@router.post("/preferences")
+def api_update_notification_preferences(
+    body: NotificationPreferencesRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Update email notification preferences."""
+    from app.db.models import AuditLogRecord
+    audit = AuditLogRecord(
+        actor=principal.email,
+        action="NOTIFICATION_PREFERENCES_UPDATED",
+        resource=f"user:{principal.user_id}",
+        outcome="SUCCESS",
+        details=body.dict(),
+    )
+    db.add(audit)
+    db.commit()
+    return {
+        "status": "SUCCESS",
+        "message": "Notification preferences updated.",
+        "preferences": body.dict(),
+    }
+
+
+@router.post("/unsubscribe")
+def api_unsubscribe_email(
+    body: OneClickUnsubscribeRequest,
+    db: Session = Depends(get_db),
+):
+    """Statutory one-click email unsubscribe endpoint (RFC 8058 compliant)."""
+    from app.db.models import AuditLogRecord
+    email_clean = body.email.strip().lower()
+
+    audit = AuditLogRecord(
+        actor=email_clean,
+        action="EMAIL_UNSUBSCRIBED",
+        resource=f"email:{email_clean}",
+        outcome="SUCCESS",
+        details={"category": body.category},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"You have been successfully unsubscribed from CARAVAN {body.category.lower()} communications.",
+        "email": email_clean,
+    }

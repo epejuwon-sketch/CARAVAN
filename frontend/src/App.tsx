@@ -24,6 +24,14 @@ import {
   LegalPrivacyPage,
 } from "./pages/StaticPages";
 import {
+  PrivacyPolicyPage,
+  TermsOfServicePage,
+  RefundPolicyPage,
+  CookiePolicyPage,
+  BusinessOperatorPage,
+} from "./pages/LegalPages";
+import { CookieConsentBanner } from "./components/ui/CookieConsentBanner";
+import {
   LayoutDashboard,
   Compass,
   FolderKanban,
@@ -85,7 +93,12 @@ function MainContent() {
       case "pricing": return <PricingPage onNavigate={navigate} />;
       case "about": return <AboutPage onNavigate={navigate} />;
       case "contact": return <ContactPage onNavigate={navigate} />;
-      case "legal-privacy": return <LegalPrivacyPage onNavigate={navigate} />;
+      case "privacy":
+      case "legal-privacy": return <PrivacyPolicyPage onNavigate={navigate} />;
+      case "terms": return <TermsOfServicePage onNavigate={navigate} />;
+      case "refund": return <RefundPolicyPage onNavigate={navigate} />;
+      case "cookies": return <CookiePolicyPage onNavigate={navigate} />;
+      case "operator": return <BusinessOperatorPage onNavigate={navigate} />;
       case "login": return <LoginPage onNavigate={navigate} />;
       case "register": return <RegisterPage onNavigate={navigate} />;
       case "discover": return <MarketplacePage onNavigate={navigate} />;
@@ -117,6 +130,7 @@ function MainContent() {
     return (
       <PortalLayout currentRoute={currentRoute} onNavigate={navigate}>
         {renderPage()}
+        <CookieConsentBanner />
       </PortalLayout>
     );
   }
@@ -126,6 +140,7 @@ function MainContent() {
       <Navbar currentRoute={currentRoute} onNavigate={navigate} />
       <main style={{ flex: 1 }}>{renderPage()}</main>
       <Footer onNavigate={navigate} />
+      <CookieConsentBanner />
       <CopilotWidget onNavigate={navigate} />
       <nav className="mobile-bottom-nav">
         {user ? (

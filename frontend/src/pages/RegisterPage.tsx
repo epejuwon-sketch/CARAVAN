@@ -147,6 +147,43 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ onNavigate }) => {
             </div>
           </div>
 
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 12 }} className="muted">
+              <input
+                type="checkbox"
+                required
+                style={{ marginTop: 2, width: 16, height: 16, accentColor: "var(--accent-gold)" }}
+              />
+              <span>
+                I confirm I am at least <strong>18 years of age</strong> and agree to CARAVAN&rsquo;s{" "}
+                <button
+                  type="button"
+                  style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", color: "var(--accent-gold-bright)", cursor: "pointer" }}
+                  onClick={() => onNavigate("terms")}
+                >
+                  Terms of Service
+                </button>{" "}
+                and{" "}
+                <button
+                  type="button"
+                  style={{ background: "none", border: "none", padding: 0, textDecoration: "underline", color: "var(--accent-gold-bright)", cursor: "pointer" }}
+                  onClick={() => onNavigate("privacy")}
+                >
+                  Privacy Policy
+                </button>{" "}
+                (NDPA 2023).
+              </span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", fontSize: 12 }} className="muted">
+              <input
+                type="checkbox"
+                style={{ marginTop: 2, width: 16, height: 16, accentColor: "var(--accent-gold)" }}
+              />
+              <span>(Optional) Send me institutional grant deadline alerts and weekly African funding digests.</span>
+            </label>
+          </div>
+
           <button type="submit" className="btn btn-lg" disabled={loading} style={{ marginTop: 8 }}>
             {loading ? "Registering..." : "Create Organization Account"} <ArrowRight size={14} />
           </button>
