@@ -81,7 +81,8 @@ def test_document_intelligence_matching(client: TestClient, registered_customer:
 
     # 1. Get an opportunity with requirements
     opps = client.get("/api/v1/opportunities").json()["opportunities"]
-    opp_id = opps[0]["opportunity_id"]
+    target_opp = next((o for o in opps if any("cac" in r.lower() for r in (o.get("application_requirements") or []))), opps[0])
+    opp_id = target_opp["opportunity_id"]
 
     # 2. Query document readiness before uploads
     readiness_res = client.get(f"/api/v1/copilot/document-readiness/{opp_id}", headers=headers)
