@@ -28,11 +28,14 @@ Lifecycle statuses strictly separated:
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("caravan")
 
 from app.db.models import (
     FundingOpportunityRecord,
