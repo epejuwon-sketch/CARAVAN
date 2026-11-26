@@ -313,18 +313,17 @@ class AIProviderFactory:
             "working_api_version": None,
         }
 
-        # Probe 1: List models via v1beta and v1, header and query
+        # Probe 1: List models via v1beta and v1, header and query (with early exit on 200)
         list_endpoints = [
             ("v1beta_header", "https://generativelanguage.googleapis.com/v1beta/models", {"x-goog-api-key": api_key}, {}),
             ("v1beta_query", "https://generativelanguage.googleapis.com/v1beta/models", {}, {"key": api_key}),
             ("v1_header", "https://generativelanguage.googleapis.com/v1/models", {"x-goog-api-key": api_key}, {}),
-            ("v1_query", "https://generativelanguage.googleapis.com/v1/models", {}, {"key": api_key}),
         ]
 
         working_list = None
         for name, url, headers, params in list_endpoints:
             try:
-                with httpx.Client(timeout=4.0) as client:
+                with httpx.Client(timeout=2.5) as client:
                     resp = client.get(url, headers=headers, params=params)
                     snippet = resp.text[:250]
                     if api_key in snippet:
@@ -334,8 +333,9 @@ class AIProviderFactory:
                         "status_code": resp.status_code,
                         "response": snippet,
                     })
-                    if resp.status_code == 200 and not working_list:
+                    if resp.status_code == 200:
                         working_list = resp.json()
+                        break
             except Exception as exc:
                 diag["list_models_probes"].append({
                     "endpoint": name,
@@ -354,14 +354,15 @@ class AIProviderFactory:
                     })
 
         # Probe 2: Test candidate models
-        candidates = [
+        candidates = []
+        if AIProviderFactory._discovered_working_model:
+            candidates.append(AIProviderFactory._discovered_working_model)
+        candidates.extend([
             settings.CARAVAN_AI_MODEL,
             "gemini-2.0-flash",
             "gemini-1.5-flash",
             "gemini-1.5-pro",
-            "gemini-2.5-flash",
-        ]
-        # Include any models from ListModels that support generateContent
+        ])
         for am in diag["available_models"]:
             clean_am = am["name"].replace("models/", "")
             if clean_am not in candidates:
@@ -371,9 +372,13 @@ class AIProviderFactory:
         dedup_candidates = [c for c in candidates if c and not (c in seen or seen.add(c))]
 
         for cand in dedup_candidates:
+            if diag["working_model"]:
+                break
             clean_cand = cand.replace("models/", "")
             cand_results = {}
             for api_ver in ("v1beta", "v1"):
+                if diag["working_model"]:
+                    break
                 for auth_mode in ("header", "query"):
                     mode_key = f"{api_ver}_{auth_mode}"
                     url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_cand}:generateContent"
@@ -384,9 +389,9 @@ class AIProviderFactory:
                     else:
                         params["key"] = api_key
 
-                    payload = {"contents": [{"parts": [{"text": "Hello"}]}]}
+                    payload = {"contents": [{"parts": [{"text": "CARAVAN diagnostic ping"}]}]}
                     try:
-                        with httpx.Client(timeout=4.0) as client:
+                        with httpx.Client(timeout=2.5) as client:
                             resp = client.post(url, json=payload, headers=headers, params=params)
                             snippet = resp.text[:200]
                             if api_key in snippet:
@@ -395,13 +400,14 @@ class AIProviderFactory:
                                 "status_code": resp.status_code,
                                 "response": snippet,
                             }
-                            if resp.status_code == 200 and not diag["working_model"]:
+                            if resp.status_code == 200:
                                 diag["working_model"] = clean_cand
                                 diag["working_auth_mode"] = auth_mode
                                 diag["working_api_version"] = api_ver
                                 AIProviderFactory._discovered_working_model = clean_cand
                                 AIProviderFactory._discovered_auth_mode = auth_mode
                                 AIProviderFactory._discovered_api_version = api_ver
+                                break
                     except Exception as exc:
                         cand_results[mode_key] = {"error": str(exc)}
             diag["candidate_probes"][clean_cand] = cand_results
@@ -410,7 +416,7 @@ class AIProviderFactory:
 
     @staticmethod
     def get_status() -> Dict[str, Any]:
-        """Returns live AI provider diagnostics without leaking secrets."""
+        """Returns live AI provider diagnostics without leaking secrets (fast serverless check)."""
         settings = get_settings()
         api_key = (settings.GEMINI_API_KEY or "").strip()
         gemini_configured = bool(api_key)
@@ -420,25 +426,70 @@ class AIProviderFactory:
         live_probe_status = "NOT_CONFIGURED"
         probe_detail = "GEMINI_API_KEY is not configured in environment variables. Local Grounded Engine is active."
         is_healthy = False
-        working_model = None
+        working_model = AIProviderFactory._discovered_working_model
 
         if gemini_configured and provider == "gemini":
-            diag = AIProviderFactory.diagnose_gemini()
-            working_model = diag.get("working_model")
-            if working_model:
-                is_healthy = True
-                live_probe_status = "HEALTHY"
-                probe_detail = f"Live handshake confirmed: Google Gemini API is answering queries successfully using model '{working_model}'."
-            else:
-                cand_probes = diag.get("candidate_probes", {})
-                last_err = "No working model or endpoint found."
-                for k, v in cand_probes.items():
-                    for mode, r in v.items():
-                        if "response" in r and "error" in r["response"].lower():
-                            last_err = r["response"]
-                            break
-                live_probe_status = "PROBE_FAILED"
-                probe_detail = f"Diagnostic probe: {last_err}"
+            target_model = working_model or model or "gemini-2.0-flash"
+            clean_model = target_model.replace("models/", "")
+            
+            # Fast live probe (max 2 attempts, <= 2.5s timeout each)
+            try:
+                auth_mode = AIProviderFactory._discovered_auth_mode or "header"
+                api_ver = AIProviderFactory._discovered_api_version or "v1beta"
+                
+                headers = {"Content-Type": "application/json"}
+                params = {}
+                if auth_mode == "header":
+                    headers["x-goog-api-key"] = api_key
+                else:
+                    params["key"] = api_key
+                    
+                url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_model}:generateContent"
+                with httpx.Client(timeout=2.5) as client:
+                    probe_res = client.post(
+                        url,
+                        json={"contents": [{"parts": [{"text": "ping"}]}]},
+                        headers=headers,
+                        params=params,
+                    )
+                    
+                    if probe_res.status_code == 200:
+                        is_healthy = True
+                        working_model = clean_model
+                        live_probe_status = "HEALTHY"
+                        probe_detail = f"Live handshake confirmed: Google Gemini API is answering queries successfully using model '{clean_model}'."
+                    elif probe_res.status_code == 404:
+                        # Fast fallback attempt with query auth and gemini-1.5-flash
+                        with httpx.Client(timeout=2.5) as fb_client:
+                            fb_res = fb_client.post(
+                                "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                                json={"contents": [{"parts": [{"text": "ping"}]}]},
+                                headers={"Content-Type": "application/json"},
+                                params={"key": api_key},
+                            )
+                            if fb_res.status_code == 200:
+                                is_healthy = True
+                                working_model = "gemini-1.5-flash"
+                                AIProviderFactory._discovered_working_model = "gemini-1.5-flash"
+                                AIProviderFactory._discovered_auth_mode = "query"
+                                AIProviderFactory._discovered_api_version = "v1beta"
+                                live_probe_status = "HEALTHY"
+                                probe_detail = "Live handshake confirmed: Google Gemini API is answering queries successfully using model 'gemini-1.5-flash'."
+                            else:
+                                live_probe_status = f"ERROR_HTTP_{fb_res.status_code}"
+                                probe_detail = f"Configured model '{clean_model}' returned 404; fallback returned HTTP {fb_res.status_code}."
+                    elif probe_res.status_code in (400, 401, 403):
+                        live_probe_status = f"AUTHENTICATION_FAILED_HTTP_{probe_res.status_code}"
+                        probe_detail = f"Google API returned HTTP {probe_res.status_code} (check API key validity and Generative Language API enablement)."
+                    elif probe_res.status_code == 429:
+                        live_probe_status = "RATE_LIMITED_HTTP_429"
+                        probe_detail = "Google Generative Language API quota exceeded or rate limited."
+                    else:
+                        live_probe_status = f"ERROR_HTTP_{probe_res.status_code}"
+                        probe_detail = f"Google API returned HTTP {probe_res.status_code} during status probe."
+            except Exception as exc:
+                live_probe_status = "TIMEOUT_OR_NETWORK_ERROR"
+                probe_detail = f"Could not reach Google Gemini endpoint: {exc.__class__.__name__}"
 
         active_provider = "google_gemini" if is_healthy else "caravan_grounded_engine"
 
