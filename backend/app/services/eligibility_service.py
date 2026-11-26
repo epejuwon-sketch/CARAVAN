@@ -159,35 +159,34 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
     # Cap score at 100
     final_score = min(100.0, max(0.0, score))
 
+    # Check for unknown / insufficient information criteria
+    unknown_criteria: List[str] = []
+    if getattr(org, "annual_revenue_ngn", 0.0) == 0 and getattr(org, "annual_revenue_usd", 0.0) == 0:
+        unknown_criteria.append("Annual revenue turnover not declared in profile; revenue-based filters require verification.")
+    if not getattr(org, "years_in_operation", None):
+        unknown_criteria.append("Operating history years not specified in profile.")
+
+    # Standardized 4-tier categorical distinction
     if is_disqualified:
+        eligibility_category = "INELIGIBLE"
         recommendation = "INELIGIBLE"
         final_score = min(final_score, 35.0)
-    elif final_score >= 80.0:
+    elif unknown_criteria and len(unknown_criteria) >= 2:
+        eligibility_category = "INSUFFICIENT_INFORMATION"
+        recommendation = "INSUFFICIENT_INFORMATION"
+    elif final_score >= 75.0:
+        eligibility_category = "ELIGIBILITY_CONFIRMED"
         recommendation = "STRONG"
-    elif final_score >= 50.0:
+    elif final_score >= 45.0:
+        eligibility_category = "LIKELY_ELIGIBLE"
         recommendation = "MODERATE"
     else:
+        eligibility_category = "INELIGIBLE"
         recommendation = "WEAK"
 
-    # Persist or update assessment
-    existing = db.execute(
-        select(EligibilityAssessmentRecord).where(
-            EligibilityAssessmentRecord.organization_id == org_id,
-            EligibilityAssessmentRecord.opportunity_id == opportunity_id,
-        )
-    ).scalar_one_or_none()
-
-    # Explainability and Actionable Guidance Synthesis
     why_matches = ""
     why_unavailable = ""
     next_steps: List[str] = []
-    unknown_criteria: List[str] = []
-
-    # Check for unknown criteria
-    if getattr(org, "annual_revenue_ngn", 0.0) == 0 and getattr(org, "annual_revenue_usd", 0.0) == 0:
-        unknown_criteria.append("Annual revenue turnover not declared in profile; revenue-based filters may require verification.")
-    if not getattr(org, "years_in_operation", None):
-        unknown_criteria.append("Operating history years not specified.")
 
     if not is_disqualified:
         if strengths:
@@ -241,6 +240,13 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "important_conditions": getattr(opp, "important_conditions", ""),
     }
 
+    existing = db.execute(
+        select(EligibilityAssessmentRecord).where(
+            EligibilityAssessmentRecord.organization_id == org_id,
+            EligibilityAssessmentRecord.opportunity_id == opportunity_id,
+        )
+    ).scalar_one_or_none()
+
     if existing:
         existing.match_score = final_score
         existing.recommendation_level = recommendation
@@ -270,6 +276,7 @@ def evaluate_eligibility(db: Session, org_id: str, opportunity_id: str) -> dict:
         "amount_display": opp.amount_display,
         "match_score": final_score,
         "recommendation_level": recommendation,
+        "eligibility_category": eligibility_category,
         "criteria_breakdown": breakdown_payload,
         "is_disqualified": is_disqualified,
         "disqualifications": disqualifications,

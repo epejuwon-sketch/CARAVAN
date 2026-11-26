@@ -383,6 +383,7 @@ def upload_document_binary(
 
     return {
         "doc_id": doc.doc_id,
+        "document_id": doc.doc_id,
         "organization_id": doc.organization_id,
         "application_id": doc.application_id,
         "name": doc.name,

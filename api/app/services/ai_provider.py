@@ -71,9 +71,10 @@ class GeminiAIProvider(BaseAIProvider):
     """Google Gemini AI Provider with secure server-side tool calling and context management."""
 
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
-        self.api_key = api_key
-        self.model = model
-        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        self.api_key = api_key.strip()
+        self.model = model.strip()
+        # Securely pass API key via header rather than in URL query string to prevent access log leakage
+        self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
 
     def generate(
         self,
@@ -108,9 +109,16 @@ class GeminiAIProvider(BaseAIProvider):
 
         try:
             with httpx.Client(timeout=12.0) as client:
-                res = client.post(self.api_url, json=payload, headers={"Content-Type": "application/json"})
+                res = client.post(
+                    self.api_url,
+                    json=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self.api_key,
+                    },
+                )
                 if res.status_code != 200:
-                    logger.warning("Gemini API non-200 status %d: %s", res.status_code, res.text[:200])
+                    logger.warning("Gemini API non-200 status %d", res.status_code)
                     raise RuntimeError(f"Gemini API returned status {res.status_code}")
 
                 data = res.json()

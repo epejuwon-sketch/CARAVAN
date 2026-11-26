@@ -48,7 +48,17 @@ class DraftProposalRequest(BaseModel):
 class ApproveApplicationRequest(BaseModel):
     application_id: str
     customer_notes: Optional[str] = ""
-    force_approval_override: Optional[bool] = False
+
+
+class AdminOverrideRequest(BaseModel):
+    application_id: str
+    override_reason: str
+    exception_notes: Optional[str] = ""
+    target_org_id: Optional[str] = None
+
+
+class ConfirmExtractedFieldsRequest(BaseModel):
+    confirmed_fields: Dict[str, Any]
 
 
 class SubmitApplicationRequest(BaseModel):
@@ -180,14 +190,14 @@ def api_application_agent_draft(
 def api_copilot_ai_status():
     """Diagnostic endpoint reporting real AI Intelligence Provider configuration and status."""
     from app.services.ai_provider import AIProviderFactory
-    from app.services.voice_service import VoiceService
-    from app.services.document_intelligence import DocumentIntelligence
+    from app.services.ocr_service import OCRProviderFactory
 
     status_data = AIProviderFactory.get_status()
-    # Check OCR availability
-    dummy_ocr = DocumentIntelligence.extract_text_from_file(b"", "sample.png", "image/png")
-    status_data["ocr_available"] = dummy_ocr.get("ocr_available", False)
-    status_data["ocr_engine"] = dummy_ocr.get("ocr_engine", "NOT_INSTALLED")
+    ocr_caps = OCRProviderFactory.get_ocr_capabilities()
+    status_data["ocr_status"] = ocr_caps["ocr_status"]
+    status_data["ocr_available"] = ocr_caps["ocr_status"] == "READY"
+    status_data["ocr_engine"] = ocr_caps["active_engine"]
+    status_data["ocr_capabilities"] = ocr_caps
     status_data["voice_transcription_ready"] = True
     status_data["voice_synthesis_ready"] = True
     return status_data
@@ -199,15 +209,69 @@ def api_application_agent_approve(
     principal: CaravanPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
-    """Step 11: Explicit Customer Approval before external submission."""
+    """Step 11: Explicit Customer Approval. Rejects INCOMPLETE applications with HTTP 422."""
     return ApplicationAgent.approve_application_workflow(
         db=db,
         org_id=principal.organization_id,
         user_id=principal.user_id,
         application_id=body.application_id,
         customer_notes=body.customer_notes or "",
-        force_approval_override=bool(body.force_approval_override),
     )
+
+
+@router.post("/application-agent/admin-override", status_code=status.HTTP_200_OK)
+def api_application_agent_admin_override(
+    body: AdminOverrideRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Explicit Administrator Exception Override. Requires PLATFORM_ADMIN, SUPER_ADMIN, or ADMIN role."""
+    target_org = body.target_org_id or principal.organization_id
+    return ApplicationAgent.admin_override_workflow(
+        db=db,
+        admin_principal=principal,
+        target_org_id=target_org,
+        application_id=body.application_id,
+        override_reason=body.override_reason,
+        exception_notes=body.exception_notes or "",
+    )
+
+
+@router.post("/documents/{document_id}/confirm-fields", status_code=status.HTTP_200_OK)
+def api_confirm_document_fields(
+    document_id: str,
+    body: ConfirmExtractedFieldsRequest,
+    principal: CaravanPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    """Customer confirmation or correction of uncertain OCR-extracted fields."""
+    from app.db.models import DocumentMetadataRecord, AuditLogRecord, gen_id
+    doc = db.execute(
+        select(DocumentMetadataRecord).where(
+            DocumentMetadataRecord.doc_id == document_id,
+            DocumentMetadataRecord.organization_id == principal.organization_id,
+            DocumentMetadataRecord.deleted_at.is_(None),
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    audit = AuditLogRecord(
+        log_id=gen_id("aud"),
+        actor=principal.user_id,
+        action="DOCUMENT_EXTRACTED_FIELDS_CONFIRMED_BY_CUSTOMER",
+        resource=f"DOCUMENT:{document_id}",
+        outcome="SUCCESS",
+        details={"organization_id": principal.organization_id, "confirmed_fields": body.confirmed_fields},
+    )
+    db.add(audit)
+    db.commit()
+    return {
+        "status": "CONFIRMED",
+        "document_id": document_id,
+        "confirmed_fields": body.confirmed_fields,
+        "message": "Extracted fields confirmed by customer.",
+    }
 
 
 @router.post("/application-agent/submit", status_code=status.HTTP_200_OK)

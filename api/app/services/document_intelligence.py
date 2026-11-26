@@ -103,6 +103,11 @@ class DocumentIntelligence:
                 "prompt_injection_detected": False,
             }
 
+        confidence_score = 0.0
+        uncertain_fields: List[Dict[str, Any]] = []
+        needs_customer_confirmation = False
+        ocr_engine = "NOT_INSTALLED"
+
         # 1. PDF Extraction via pypdf
         if fn_lower.endswith(".pdf") or "pdf" in content_type.lower():
             extraction_method = "PYPDF_NATIVE_STREAM"
@@ -115,13 +120,9 @@ class DocumentIntelligence:
                     if t:
                         page_texts.append(t)
                 extracted_text = "\n".join(page_texts).strip()
-            except Exception as pdf_err:
-                # Fallback simple text marker scan
-                try:
-                    raw_str = file_bytes.decode("utf-8", errors="ignore")
-                    extracted_text = " ".join(re.findall(r"\b[A-Za-z0-9,.\- ]{4,}\b", raw_str[:4000]))
-                except Exception:
-                    extracted_text = ""
+                confidence_score = 0.98 if extracted_text else 0.0
+            except Exception:
+                extracted_text = ""
 
         # 2. DOCX Extraction via standard zipfile and xml parsing (Zero external dependencies)
         elif fn_lower.endswith(".docx") or "officedocument.wordprocessingml" in content_type.lower():
@@ -131,9 +132,9 @@ class DocumentIntelligence:
                     if "word/document.xml" in docx_zip.namelist():
                         xml_bytes = docx_zip.read("word/document.xml")
                         root = ET.fromstring(xml_bytes)
-                        # Extract all w:t text nodes
                         text_parts = [elem.text for elem in root.iter() if elem.text]
                         extracted_text = " ".join(text_parts).strip()
+                        confidence_score = 0.98 if extracted_text else 0.0
             except Exception:
                 extracted_text = ""
 
@@ -142,23 +143,32 @@ class DocumentIntelligence:
             extraction_method = "PLAINTEXT_UTF8"
             try:
                 extracted_text = file_bytes.decode("utf-8", errors="ignore").strip()
+                confidence_score = 1.0 if extracted_text else 0.0
             except Exception:
                 extracted_text = ""
 
-        # 4. Images (PNG, JPG, TIFF, WEBP) -> Accurate OCR availability check
+        # 4. Images (PNG, JPG, TIFF, WEBP) -> Accurate OCR via OCRProviderFactory
         elif any(fn_lower.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".tiff", ".webp")):
             extraction_method = "IMAGE_RASTER"
-            # Explicitly check if an OCR binary is installed in environment
-            try:
-                import pytesseract
-                # If available, execute
-                from PIL import Image
-                img = Image.open(io.BytesIO(file_bytes))
-                extracted_text = pytesseract.image_to_string(img)
-                ocr_available = True
-                extraction_method = "PYTESSERACT_OCR"
-            except (ImportError, Exception):
+            from app.services.ocr_service import OCRProviderFactory
+            ocr_provider = OCRProviderFactory.get_provider()
+            if ocr_provider:
+                try:
+                    ocr_res = ocr_provider.extract_document(file_bytes, filename, content_type)
+                    extracted_text = ocr_res.text
+                    confidence_score = ocr_res.confidence_score
+                    extraction_method = ocr_res.extraction_method
+                    ocr_available = True
+                    ocr_engine = ocr_res.provider_used
+                    uncertain_fields = ocr_res.uncertain_fields
+                    needs_customer_confirmation = ocr_res.needs_customer_confirmation
+                except Exception:
+                    ocr_available = False
+                    ocr_engine = "PROVIDER_ERROR"
+                    extracted_text = ""
+            else:
                 ocr_available = False
+                ocr_engine = "NOT_INSTALLED"
                 extracted_text = ""
 
         # 5. Prompt Injection Defense within Uploaded Document Content
@@ -174,9 +184,12 @@ class DocumentIntelligence:
         return {
             "text": extracted_text,
             "word_count": len(extracted_text.split()) if extracted_text else 0,
+            "confidence_score": confidence_score,
             "extraction_method": extraction_method,
             "ocr_available": ocr_available,
-            "ocr_engine": "PYTESSERACT" if ocr_available else "NOT_INSTALLED",
+            "ocr_engine": ocr_engine,
+            "uncertain_fields": uncertain_fields,
+            "needs_customer_confirmation": needs_customer_confirmation,
             "prompt_injection_detected": prompt_injection_detected,
         }
 

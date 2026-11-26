@@ -346,7 +346,12 @@ class CopilotApprovalRecord(Base):
     user_id = Column(String(64), nullable=False, index=True)
     target_type = Column(String(64), nullable=False)  # APPLICATION_SUBMISSION, APPLICATION_DRAFT, DOCUMENT_RELEASE
     target_id = Column(String(64), nullable=False)  # application_id or draft_id
-    status = Column(String(32), default="PENDING", nullable=False)  # PENDING, APPROVED, REJECTED
+    status = Column(String(32), default="PENDING", nullable=False)  # PENDING, APPROVED, REJECTED, APPROVED_WITH_ADMIN_OVERRIDE, SUPERSEDED
+    approval_type = Column(String(32), default="CUSTOMER_APPROVAL", nullable=False)  # CUSTOMER_APPROVAL, ADMIN_OVERRIDE
+    authorizer_role = Column(String(32), default="CUSTOMER", nullable=False)
+    authorizer_user_id = Column(String(64), nullable=True)
+    override_reason = Column(Text, default="", nullable=False)
+    remaining_gaps = Column(JSON, default=list, nullable=False)
     customer_notes = Column(Text, default="", nullable=False)
     approval_hash = Column(String(64), nullable=True)  # Cryptographic audit hash of customer consent
     approved_at = Column(DateTime(timezone=True), nullable=True)

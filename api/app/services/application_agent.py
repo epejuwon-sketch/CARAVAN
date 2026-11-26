@@ -109,10 +109,14 @@ class ApplicationAgent:
         if not org.products_services:
             missing_profile_fields.append("Core Commercial Products and Services")
 
-        # Step 8: Draft Application Answers
-        sector_title = org.sector or "Commercial Enterprise"
-        company_name = org.name or "The Applicant Enterprise"
+        # Step 8: Draft Application Answers (Never invent missing customer facts)
+        sector_title = org.sector or "[UNSPECIFIED: Primary Industry Sector]"
+        company_name = org.name or "[UNSPECIFIED: Enterprise Name]"
         quantum = opp.amount_display or "Concessionary Funding Facility"
+        target_cust = org.target_customers or "[UNSPECIFIED: Enter target customer demographics in Organization Profile]"
+        prod_serv = org.products_services or "[UNSPECIFIED: Enter core commercial products and services in Organization Profile]"
+        biz_model = getattr(org, "business_model", "") or "[UNSPECIFIED: Enter business model in Organization Profile]"
+        growth_obj = getattr(org, "growth_objectives", "") or "[UNSPECIFIED: Enter growth objectives in Organization Profile]"
 
         executive_summary = (
             f"{company_name} is a high-impact, CAC-registered {org.stage.lower()} enterprise operating "
@@ -124,16 +128,16 @@ class ApplicationAgent:
 
         problem_statement = (
             f"Across Nigeria's {sector_title} ecosystem, key market segments—specifically "
-            f"{getattr(org, 'target_customers', 'underserved commercial buyers and consumers')}—suffer from acute structural inefficiencies, "
+            f"{target_cust}—suffer from acute structural inefficiencies, "
             f"limited infrastructure access, and inflated transaction costs. "
             f"Conventional solutions fail to meet demand reliably due to supply volatility and high capital barriers."
         )
 
         solution_narrative = (
-            f"{company_name} addresses this bottleneck through our proprietary {getattr(org, 'products_services', 'commercial offerings')}, "
-            f"operating on a resilient {getattr(org, 'business_model', 'B2B')} commercial model. "
+            f"{company_name} addresses this bottleneck through our proprietary {prod_serv}, "
+            f"operating on a resilient {biz_model} commercial model. "
             f"Our solution delivers measurable operational efficiency, verifiable quality assurance, and competitive pricing, "
-            f"advancing our strategic objective to {getattr(org, 'growth_objectives', 'expand commercial footprint and distribution nationwide')}."
+            f"advancing our strategic objective to {growth_obj}."
         )
 
         budget_breakdown = [
@@ -265,9 +269,14 @@ class ApplicationAgent:
         user_id: str,
         application_id: str,
         customer_notes: str = "",
-        force_approval_override: bool = False,
     ) -> Dict[str, Any]:
-        """Step 11: Explicit Customer Approval tied directly to exact draft content hash."""
+        """Step 11: Explicit Customer Approval tied directly to exact draft content hash.
+        
+        STRICT SECURITY:
+        - Customer approval is strictly prohibited for INCOMPLETE applications.
+        - Customers cannot override missing mandatory requirements.
+        - Binds approval directly to exact draft content hash.
+        """
         app_rec = db.execute(
             select(ApplicationRecord).where(
                 ApplicationRecord.application_id == application_id,
@@ -288,12 +297,12 @@ class ApplicationAgent:
         if not latest_draft:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No application draft found to approve.")
 
-        # Strict validation: INCOMPLETE drafts cannot be approved without explicit override
-        if latest_draft.validation_status == "INCOMPLETE" and not force_approval_override:
+        # Strict validation: INCOMPLETE drafts CANNOT be approved by customer under any circumstance
+        if latest_draft.validation_status == "INCOMPLETE":
             missing_reasons = "; ".join(latest_draft.validation_notes) if latest_draft.validation_notes else "Missing requirements"
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Cannot approve application: Application is INCOMPLETE ({missing_reasons}). All mandatory requirements must be satisfied first.",
+                detail=f"Cannot approve application: Application is INCOMPLETE ({missing_reasons}). All mandatory requirements must be satisfied first. Customer approval cannot override incomplete requirements.",
             )
 
         # Compute content hash of the exact draft being approved
@@ -310,7 +319,7 @@ class ApplicationAgent:
             select(CopilotApprovalRecord).where(
                 CopilotApprovalRecord.organization_id == org_id,
                 CopilotApprovalRecord.target_id == latest_draft.draft_id,
-                CopilotApprovalRecord.status == "APPROVED",
+                CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
             )
         ).scalars().all()
         for p in prior_approvals:
@@ -323,7 +332,12 @@ class ApplicationAgent:
             user_id=user_id,
             target_type="APPLICATION_DRAFT",
             target_id=latest_draft.draft_id,
-            status="APPROVED",
+            status="APPROVED_BY_CUSTOMER",
+            approval_type="CUSTOMER_APPROVAL",
+            authorizer_role="CUSTOMER",
+            authorizer_user_id=user_id,
+            override_reason="",
+            remaining_gaps=[],
             customer_notes=customer_notes or "Customer explicitly verified all answers and authorized submission.",
             approval_hash=draft_hash,
             approved_at=now,
@@ -347,6 +361,7 @@ class ApplicationAgent:
                 "approval_id": approval_rec.approval_id,
                 "draft_id": latest_draft.draft_id,
                 "approval_hash": draft_hash,
+                "approval_type": "CUSTOMER_APPROVAL",
             },
         )
         db.add(audit)
@@ -357,12 +372,164 @@ class ApplicationAgent:
         return {
             "step": 11,
             "status": "APPROVED_BY_CUSTOMER",
+            "approval_type": "CUSTOMER_APPROVAL",
             "approval_id": approval_rec.approval_id,
             "application_id": application_id,
             "draft_id": latest_draft.draft_id,
             "approval_hash": draft_hash,
             "approved_at": approval_rec.approved_at.isoformat(),
             "message": "Explicit customer approval recorded and tied to exact draft content hash.",
+        }
+
+    @staticmethod
+    def admin_override_workflow(
+        db: Session,
+        admin_principal: Any,
+        target_org_id: str,
+        application_id: str,
+        override_reason: str,
+        exception_notes: str = "",
+    ) -> Dict[str, Any]:
+        """Authorized Administrator Exception Override.
+        
+        STRICT SECURITY:
+        - Only users with PLATFORM_ADMIN, SUPER_ADMIN, or ADMIN roles may invoke.
+        - Preserves all missing-document and missing-information warnings.
+        - NEVER represents an incomplete application as complete.
+        - Records who authorized the override, why, when, and which requirements remain incomplete.
+        - Binds to exact draft content hash.
+        """
+        # 1. Enforce Administrator Role
+        if not getattr(admin_principal, "is_admin", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Administrative privilege required: Only platform administrators can authorize application exceptions.",
+            )
+
+        # 2. Require Substantive Override Justification
+        clean_reason = (override_reason or "").strip()
+        if len(clean_reason) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Administrator override requires a substantive justification explaining the exception (minimum 10 characters).",
+            )
+
+        # 3. Locate Target Application Workspace
+        app_rec = db.execute(
+            select(ApplicationRecord).where(
+                ApplicationRecord.application_id == application_id,
+                ApplicationRecord.organization_id == target_org_id,
+            )
+        ).scalar_one_or_none()
+        if not app_rec:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application workspace not found for target organization.")
+
+        # 4. Retrieve Latest Draft
+        latest_draft = db.execute(
+            select(ApplicationDraftRecord).where(
+                ApplicationDraftRecord.application_id == application_id,
+                ApplicationDraftRecord.organization_id == target_org_id,
+            ).order_by(ApplicationDraftRecord.created_at.desc())
+        ).scalars().first()
+
+        if not latest_draft:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No application draft found for target application.")
+
+        # 5. Preserve Missing Requirements Warnings
+        remaining_incomplete = list(latest_draft.validation_notes or [])
+        if not remaining_incomplete and latest_draft.validation_status == "INCOMPLETE":
+            remaining_incomplete.append("Unsatisfied mandatory documents or corporate profile fields.")
+
+        # 6. Compute exact draft content hash
+        draft_hash = _compute_draft_hash(
+            title=latest_draft.title,
+            exec_summary=latest_draft.executive_summary,
+            problem=latest_draft.problem_statement,
+            solution=latest_draft.solution_narrative,
+            sections=latest_draft.sections,
+        )
+
+        now = datetime.now(timezone.utc)
+
+        # 7. Invalidate prior approvals
+        prior_approvals = db.execute(
+            select(CopilotApprovalRecord).where(
+                CopilotApprovalRecord.organization_id == target_org_id,
+                CopilotApprovalRecord.target_id == latest_draft.draft_id,
+                CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+            )
+        ).scalars().all()
+        for p in prior_approvals:
+            p.status = "SUPERSEDED"
+
+        # 8. Record Administrator Override Approval Record
+        approval_rec = CopilotApprovalRecord(
+            approval_id=gen_id("appr"),
+            organization_id=target_org_id,
+            user_id=admin_principal.user_id,
+            target_type="APPLICATION_DRAFT",
+            target_id=latest_draft.draft_id,
+            status="APPROVED_WITH_ADMIN_OVERRIDE",
+            approval_type="ADMIN_OVERRIDE",
+            authorizer_role=admin_principal.role,
+            authorizer_user_id=admin_principal.user_id,
+            override_reason=clean_reason,
+            remaining_gaps=remaining_incomplete,
+            customer_notes=exception_notes or f"Administrative override authorized by {admin_principal.role} ({admin_principal.email}): {clean_reason}",
+            approval_hash=draft_hash,
+            approved_at=now,
+        )
+        db.add(approval_rec)
+
+        # NEVER mark as complete! Mark explicitly as INCOMPLETE_ADMIN_OVERRIDE
+        latest_draft.validation_status = "INCOMPLETE_ADMIN_OVERRIDE"
+        latest_draft.updated_at = now
+        app_rec.status = "APPROVED_BY_ADMIN_OVERRIDE"
+        app_rec.updated_at = now
+
+        # 9. Audit Logging
+        audit = AuditLogRecord(
+            log_id=gen_id("aud"),
+            actor=admin_principal.user_id,
+            action="APPLICATION_ADMIN_OVERRIDE_GRANTED",
+            resource=f"APPLICATION:{application_id}",
+            outcome="SUCCESS",
+            details={
+                "organization_id": target_org_id,
+                "approval_id": approval_rec.approval_id,
+                "authorizer_user_id": admin_principal.user_id,
+                "authorizer_role": admin_principal.role,
+                "authorizer_email": getattr(admin_principal, "email", ""),
+                "override_reason": clean_reason,
+                "remaining_incomplete_requirements": remaining_incomplete,
+                "draft_id": latest_draft.draft_id,
+                "draft_hash": draft_hash,
+                "authorized_at": now.isoformat(),
+            },
+        )
+        db.add(audit)
+
+        db.commit()
+        db.refresh(approval_rec)
+
+        return {
+            "step": 11,
+            "status": "APPROVED_BY_ADMIN_OVERRIDE",
+            "approval_type": "ADMIN_OVERRIDE",
+            "approval_id": approval_rec.approval_id,
+            "application_id": application_id,
+            "draft_id": latest_draft.draft_id,
+            "approval_hash": draft_hash,
+            "authorizer": {
+                "user_id": admin_principal.user_id,
+                "role": admin_principal.role,
+                "email": getattr(admin_principal, "email", ""),
+            },
+            "override_reason": clean_reason,
+            "remaining_incomplete_requirements": remaining_incomplete,
+            "validation_status": "INCOMPLETE_ADMIN_OVERRIDE",
+            "approved_at": approval_rec.approved_at.isoformat(),
+            "message": "Administrative override recorded with preserved deficiency warnings and tamper-evident audit trail.",
         }
 
     @staticmethod
@@ -379,14 +546,14 @@ class ApplicationAgent:
             select(CopilotApprovalRecord).where(
                 CopilotApprovalRecord.approval_id == approval_id,
                 CopilotApprovalRecord.organization_id == org_id,
-                CopilotApprovalRecord.status == "APPROVED",
+                CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
             )
         ).scalar_one_or_none()
 
         if not approval:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Security Guardrail Enforced: Submission requires explicit customer approval (Step 11). No valid approval record found.",
+                detail="Security Guardrail Enforced: Submission requires explicit customer approval or authorized administrator override (Step 11). No valid approval record found.",
             )
 
         app_rec = db.execute(
@@ -409,10 +576,11 @@ class ApplicationAgent:
         if not latest_draft:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application draft record not found.")
 
-        if latest_draft.validation_status == "INCOMPLETE":
+        # If draft is still INCOMPLETE and not approved via admin override, refuse
+        if latest_draft.validation_status == "INCOMPLETE" and approval.approval_type != "ADMIN_OVERRIDE":
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Security Guardrail Enforced: Cannot submit an INCOMPLETE application.",
+                detail="Security Guardrail Enforced: Cannot submit an INCOMPLETE application without an authorized administrator override.",
             )
 
         # Invalidate approval if draft changed after approval was granted
