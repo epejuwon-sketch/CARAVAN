@@ -1062,21 +1062,25 @@ class ApplicationAgent:
         material_keys = {"annual_revenue_ngn", "cac_registered", "target_customers", "products_services", "business_model"}
         invalidated_count = 0
         if material_keys.intersection(updated_fields.keys()):
-            pending_approvals = db.execute(
-                select(CopilotApprovalRecord).where(
-                    CopilotApprovalRecord.organization_id == org_id,
-                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-                )
-            ).scalars().all()
-            for appr in pending_approvals:
-                has_submission = db.execute(
-                    select(ApplicationSubmissionRecord).where(
-                        ApplicationSubmissionRecord.approval_id == appr.approval_id
+            try:
+                pending_approvals = db.execute(
+                    select(CopilotApprovalRecord).where(
+                        CopilotApprovalRecord.organization_id == org_id,
+                        CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
                     )
-                ).first()
-                if not has_submission:
-                    appr.status = "INVALIDATED_PROFILE_MODIFIED"
-                    invalidated_count += 1
+                ).scalars().all()
+                for appr in pending_approvals:
+                    has_submission = db.execute(
+                        select(ApplicationSubmissionRecord).where(
+                            ApplicationSubmissionRecord.approval_id == appr.approval_id
+                        )
+                    ).first()
+                    if not has_submission:
+                        appr.status = "INVALIDATED_PROFILE_MODIFIED"
+                        invalidated_count += 1
+            except Exception as e:
+                db.rollback()
+                logger.warning("Could not query or invalidate approvals: %s", e)
 
         audit = AuditLogRecord(
             log_id=gen_id("aud"),

@@ -379,9 +379,17 @@ def api_update_journey_profile(
     db: Session = Depends(get_db),
 ):
     """Allows customer to provide missing business details directly via AURELIA to advance journey."""
-    return ApplicationAgent.update_missing_business_info(
-        db=db,
-        org_id=principal.organization_id,
-        user_id=principal.user_id,
-        fields=body.fields,
-    )
+    try:
+        return ApplicationAgent.update_missing_business_info(
+            db=db,
+            org_id=principal.organization_id,
+            user_id=principal.user_id,
+            fields=body.fields,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Update profile notice: {type(exc).__name__}: {exc}",
+        )
