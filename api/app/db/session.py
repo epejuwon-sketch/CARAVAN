@@ -308,11 +308,20 @@ def set_tenant_context(
                     db.execute(text("SET LOCAL ROLE caravan_app"))
                 except Exception:
                     pass
+                db.execute(
+                    text("SELECT set_config('app.is_admin', 'false', true)"),
+                )
             else:
                 try:
-                    db.execute(text("SET LOCAL ROLE NONE"))
+                    db.execute(text("SET LOCAL ROLE caravan_admin"))
                 except Exception:
-                    pass
+                    try:
+                        db.execute(text("SET LOCAL ROLE NONE"))
+                    except Exception:
+                        pass
+                db.execute(
+                    text("SELECT set_config('app.is_admin', 'true', true)"),
+                )
 
             db.execute(
                 text("SELECT set_config('app.current_org_id', :org_id, true)"),
@@ -321,10 +330,6 @@ def set_tenant_context(
             db.execute(
                 text("SELECT set_config('app.current_user_id', :user_id, true)"),
                 {"user_id": safe_user},
-            )
-            db.execute(
-                text("SELECT set_config('app.is_admin', :is_admin, true)"),
-                {"is_admin": admin_val},
             )
     except Exception as exc:
         logger.debug("set_tenant_context non-blocking notice: %s", exc)

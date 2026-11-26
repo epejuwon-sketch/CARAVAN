@@ -46,10 +46,21 @@ class SlidingWindowRateLimiter:
         self._history.clear()
 
 
+SENSITIVE_RATE_LIMIT_ENDPOINTS = {
+    "auth:login",
+    "auth:register",
+    "auth:forgot-password",
+    "auth:reset-password",
+    "account:delete",
+    "account:delete-request",
+}
+
+
 class DistributedRateLimiter:
     """Distributed rate limiter backed by persistent database storage (caravan_rate_limits)
 
-    with atomic upsert, Redis hook support, and graceful in-memory fallback.
+    with atomic upsert, Redis hook support, documented fail-closed policy for sensitive
+    authentication operations during store outages, and safe in-memory fallback for non-sensitive operations.
     """
 
     def __init__(self):
@@ -62,6 +73,7 @@ class DistributedRateLimiter:
         max_requests: int = 10,
         window_seconds: int = 60,
         account_identifier: Optional[str] = None,
+        is_sensitive: bool = False,
     ) -> None:
         settings = get_settings()
         if not getattr(settings, "RATE_LIMIT_ENABLED", True):
@@ -70,20 +82,31 @@ class DistributedRateLimiter:
         if os.environ.get("CARAVAN_ENV") == "test" and request.headers.get("x-test-rate-limit") != "true":
             return
 
+        sensitive = is_sensitive or endpoint_key in SENSITIVE_RATE_LIMIT_ENDPOINTS or any(
+            endpoint_key.startswith(p) for p in ("auth:", "account:delete")
+        )
+
         now = time.time()
         client_ip = self._extract_client_ip(request)
 
         # 1. IP-based bucket
         ip_bucket = f"ip:{client_ip}:{endpoint_key}"
-        self._atomic_consume(ip_bucket, max_requests, window_seconds, now)
+        self._atomic_consume(ip_bucket, max_requests, window_seconds, now, is_sensitive=sensitive)
 
         # 2. Account-based bucket (if provided)
         if account_identifier:
             clean_account = account_identifier.strip().lower()
             acc_bucket = f"acc:{clean_account}:{endpoint_key}"
-            self._atomic_consume(acc_bucket, max_requests, window_seconds, now)
+            self._atomic_consume(acc_bucket, max_requests, window_seconds, now, is_sensitive=sensitive)
 
-    def _atomic_consume(self, bucket_key: str, max_requests: int, window_seconds: int, now: float) -> None:
+    def _atomic_consume(
+        self,
+        bucket_key: str,
+        max_requests: int,
+        window_seconds: int,
+        now: float,
+        is_sensitive: bool = False,
+    ) -> None:
         """Atomically increments the request counter for the bucket key."""
         try:
             from app.db.session import get_session_factory
@@ -129,9 +152,25 @@ class DistributedRateLimiter:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.warning("Persistent rate limit store unavailable (%s), falling back to in-memory: %s", type(exc).__name__, exc)
-            # Safe in-memory fallback
-            self._memory_fallback.check(bucket_key, max_requests, window_seconds, now)
+            safe_prefix = bucket_key.split(":")[0] if ":" in bucket_key else "sec"
+            if is_sensitive:
+                logger.error(
+                    "Rate limiter shared-store outage on sensitive endpoint bucket [%s:[REDACTED]]: %s. Enforcing fail-closed rate protection.",
+                    safe_prefix,
+                    type(exc).__name__,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication rate protection service temporarily unavailable. Please retry shortly.",
+                    headers={"Retry-After": "15"},
+                )
+            else:
+                logger.warning(
+                    "Persistent rate limit store unavailable (%s) for bucket [%s:[REDACTED]], falling back to local window.",
+                    type(exc).__name__,
+                    safe_prefix,
+                )
+                self._memory_fallback.check(bucket_key, max_requests, window_seconds, now)
 
     def _extract_client_ip(self, request: Request) -> str:
         """Extracts client IP with anti-spoofing proxy precedence."""

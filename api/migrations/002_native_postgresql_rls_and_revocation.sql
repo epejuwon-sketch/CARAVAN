@@ -3,6 +3,15 @@
 -- Migration: 002_native_postgresql_rls_and_revocation.sql
 -- ==============================================================================
 
+-- 0. Schema Migration Tracking Table
+CREATE TABLE IF NOT EXISTS caravan_schema_migrations (
+    migration_id VARCHAR(120) PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO caravan_schema_migrations (migration_id, applied_at)
+VALUES ('002_native_postgresql_rls_and_revocation', CURRENT_TIMESTAMP)
+ON CONFLICT (migration_id) DO UPDATE SET applied_at = CURRENT_TIMESTAMP;
+
 -- 1. Distributed Rate Limiting Table
 CREATE TABLE IF NOT EXISTS caravan_rate_limits (
     bucket_key VARCHAR(160) PRIMARY KEY,
@@ -26,18 +35,31 @@ CREATE INDEX IF NOT EXISTS ix_caravan_revoked_tokens_exp ON caravan_revoked_toke
 ALTER TABLE caravan_users ADD COLUMN IF NOT EXISTS revoked_before_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE caravan_users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 1;
 
--- 4. Application Non-Superuser Role for RLS Enforcement
+-- 4. Application Restricted Role & Administrator Role Separation
 DO $$
 BEGIN
+    -- caravan_app: unprivileged role for ordinary tenant traffic (strictly NOBYPASSRLS)
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'caravan_app') THEN
         CREATE ROLE caravan_app WITH NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS;
     END IF;
     GRANT USAGE ON SCHEMA public TO caravan_app;
-    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO caravan_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO caravan_app;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO caravan_app;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO caravan_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO caravan_app;
+
+    -- caravan_admin: explicitly scoped platform admin role (NOBYPASSRLS, requires membership check)
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'caravan_admin') THEN
+        CREATE ROLE caravan_admin WITH NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+    END IF;
+    GRANT USAGE ON SCHEMA public TO caravan_admin;
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO caravan_admin;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO caravan_admin;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO caravan_admin;
+
+    -- Grant roles to connection owner, NEVER grant caravan_admin to caravan_app
     BEGIN
         EXECUTE format('GRANT caravan_app TO %I', CURRENT_USER);
+        EXECUTE format('GRANT caravan_admin TO %I', CURRENT_USER);
     EXCEPTION WHEN OTHERS THEN
         NULL;
     END;
@@ -53,14 +75,14 @@ BEGIN
     CREATE POLICY tenant_isolation_org ON caravan_organizations
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND org_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND org_id = current_setting('app.current_org_id', true)
@@ -72,14 +94,14 @@ BEGIN
     CREATE POLICY tenant_isolation_users ON caravan_users
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -91,14 +113,14 @@ BEGIN
     CREATE POLICY tenant_isolation_eligibility ON caravan_eligibility_assessments
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -110,14 +132,14 @@ BEGIN
     CREATE POLICY tenant_isolation_apps ON caravan_applications
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -129,14 +151,14 @@ BEGIN
     CREATE POLICY tenant_isolation_docs ON caravan_documents
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -148,14 +170,14 @@ BEGIN
     CREATE POLICY tenant_isolation_saved ON caravan_saved_opportunities
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -167,14 +189,14 @@ BEGIN
     CREATE POLICY tenant_isolation_subs ON caravan_subscriptions
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -186,14 +208,14 @@ BEGIN
     CREATE POLICY tenant_isolation_tx ON caravan_payment_transactions
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -205,14 +227,14 @@ BEGIN
     CREATE POLICY tenant_isolation_tickets ON caravan_support_tickets
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                 AND organization_id = current_setting('app.current_org_id', true)
@@ -224,14 +246,14 @@ BEGIN
     CREATE POLICY tenant_isolation_notif ON caravan_notifications
         FOR ALL
         USING (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_user_id', true), '') IS NOT NULL
                 AND user_id = current_setting('app.current_user_id', true)
             )
         )
         WITH CHECK (
-            current_setting('app.is_admin', true) = 'true'
+            (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
             OR (
                 NULLIF(current_setting('app.current_user_id', true), '') IS NOT NULL
                 AND user_id = current_setting('app.current_user_id', true)
@@ -245,14 +267,14 @@ BEGIN
         CREATE POLICY tenant_isolation_approvals ON caravan_copilot_approvals
             FOR ALL
             USING (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
                 )
             )
             WITH CHECK (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
@@ -268,14 +290,14 @@ BEGIN
         CREATE POLICY tenant_isolation_submissions ON caravan_copilot_submissions
             FOR ALL
             USING (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
                 )
             )
             WITH CHECK (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
@@ -291,14 +313,14 @@ BEGIN
         CREATE POLICY tenant_isolation_sessions ON caravan_copilot_sessions
             FOR ALL
             USING (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
                 )
             )
             WITH CHECK (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
@@ -314,14 +336,14 @@ BEGIN
         CREATE POLICY tenant_isolation_drafts ON caravan_application_drafts
             FOR ALL
             USING (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)
                 )
             )
             WITH CHECK (
-                current_setting('app.is_admin', true) = 'true'
+                (pg_has_role(CURRENT_USER, 'caravan_admin', 'USAGE') AND current_setting('app.is_admin', true) = 'true')
                 OR (
                     NULLIF(current_setting('app.current_org_id', true), '') IS NOT NULL
                     AND organization_id = current_setting('app.current_org_id', true)

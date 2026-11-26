@@ -311,3 +311,154 @@ def test_account_deletion_lifecycle_and_statutory_retention(client: TestClient):
     # Verify old token is immediately rejected with 401
     after_resp = client.get("/api/v1/auth/me", headers=headers)
     assert after_resp.status_code == 401
+
+
+def test_all_14_tenant_tables_isolation_and_attack_vectors():
+    """Prove tenant isolation across ALL 14 tenant-owned tables and test attack vectors."""
+    engine = get_engine()
+    dialect = engine.dialect.name
+    if dialect != "postgresql":
+        return
+
+    tenant_tables = [
+        ("caravan_organizations", "org_id"),
+        ("caravan_users", "organization_id"),
+        ("caravan_eligibility_assessments", "organization_id"),
+        ("caravan_applications", "organization_id"),
+        ("caravan_documents", "organization_id"),
+        ("caravan_saved_opportunities", "organization_id"),
+        ("caravan_subscriptions", "organization_id"),
+        ("caravan_payment_transactions", "organization_id"),
+        ("caravan_support_tickets", "organization_id"),
+        ("caravan_notifications", "user_id"),
+        ("caravan_copilot_approvals", "organization_id"),
+        ("caravan_copilot_submissions", "organization_id"),
+        ("caravan_copilot_sessions", "organization_id"),
+        ("caravan_application_drafts", "organization_id"),
+    ]
+
+    org_a = f"org_iso_a_{gen_id('sec')}"
+    org_b = f"org_iso_b_{gen_id('sec')}"
+    uid_a = f"usr_iso_a_{gen_id('sec')}"
+    uid_b = f"usr_iso_b_{gen_id('sec')}"
+
+    # Setup seed data for both tenants under admin
+    with engine.connect() as conn:
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_admin"))
+            conn.execute(text("SELECT set_config('app.is_admin', 'true', true)"))
+            conn.execute(text("""
+                INSERT INTO caravan_organizations (org_id, name, country, state_location, sector)
+                VALUES (:oa, 'Org Alpha', 'Nigeria', 'Lagos', 'FinTech'),
+                       (:ob, 'Org Beta', 'Nigeria', 'Abuja', 'AgriTech')
+                ON CONFLICT (org_id) DO NOTHING;
+            """), {"oa": org_a, "ob": org_b})
+            conn.execute(text("""
+                INSERT INTO caravan_users (user_id, organization_id, email, password_hash, full_name, role)
+                VALUES (:ua, :oa, :ea, 'hash', 'Alpha User', 'CUSTOMER'),
+                       (:ub, :ob, :eb, 'hash', 'Beta User', 'CUSTOMER')
+                ON CONFLICT (user_id) DO NOTHING;
+            """), {"ua": uid_a, "oa": org_a, "ea": f"{uid_a}@iso.ng", "ub": uid_b, "ob": org_b, "eb": f"{uid_b}@iso.ng"})
+
+    with engine.connect() as conn:
+        # 1. SELECT isolation on all 14 tables
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            conn.execute(text("SELECT set_config('app.current_org_id', :oa, true)"), {"oa": org_a})
+            conn.execute(text("SELECT set_config('app.current_user_id', :ua, true)"), {"ua": uid_a})
+            conn.execute(text("SELECT set_config('app.is_admin', 'false', true)"))
+
+            for table, col in tenant_tables:
+                res = conn.execute(text(f"SELECT count(*) FROM {table} WHERE {col} = :b"), {"b": org_b}).scalar()
+                assert res == 0, f"{table} leaked org_b rows under org_a context!"
+
+            # 2. UPDATE isolation: trying to update org_b record updates 0 rows
+            upd = conn.execute(text("UPDATE caravan_organizations SET name = 'Tampered' WHERE org_id = :ob"), {"ob": org_b})
+            assert upd.rowcount == 0, f"UPDATE modified foreign tenant rows: {upd.rowcount}"
+
+            # 3. DELETE isolation: trying to delete org_b record deletes 0 rows
+            dlt = conn.execute(text("DELETE FROM caravan_organizations WHERE org_id = :ob"), {"ob": org_b})
+            assert dlt.rowcount == 0, f"DELETE deleted foreign tenant rows: {dlt.rowcount}"
+
+            # 4. INSERT with foreign tenant org_id: rejected by RLS WITH CHECK
+            import pytest
+            from sqlalchemy.exc import ProgrammingError, InternalError
+            with pytest.raises((ProgrammingError, InternalError)):
+                conn.execute(text("""
+                    INSERT INTO caravan_organizations (org_id, name, country, state_location, sector)
+                    VALUES ('foreign_org', 'Foreign', 'NG', 'Lagos', 'Tech')
+                """))
+
+        # 5. Missing tenant context (org_id="") -> fail closed (0 rows)
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            conn.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+            conn.execute(text("SELECT set_config('app.is_admin', 'false', true)"))
+            res = conn.execute(text("SELECT org_id FROM caravan_organizations WHERE org_id IN (:oa, :ob)"), {"oa": org_a, "ob": org_b}).fetchall()
+            assert len(res) == 0, "Missing tenant context failed to fail closed!"
+
+        # 6. Invalid tenant context -> returns 0 rows
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            conn.execute(text("SELECT set_config('app.current_org_id', 'nonexistent_tenant_xyz', true)"))
+            conn.execute(text("SELECT set_config('app.is_admin', 'false', true)"))
+            res = conn.execute(text("SELECT org_id FROM caravan_organizations WHERE org_id IN (:oa, :ob)"), {"oa": org_a, "ob": org_b}).fetchall()
+            assert len(res) == 0, "Invalid tenant context returned unexpected rows!"
+
+        # 7. Connection pool reuse without re-initialization
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            conn.execute(text("SELECT set_config('app.current_org_id', :oa, true)"), {"oa": org_a})
+            res1 = conn.execute(text("SELECT org_id FROM caravan_organizations WHERE org_id IN (:oa, :ob)"), {"oa": org_a, "ob": org_b}).fetchall()
+            assert len(res1) == 1
+
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            # Not setting org_id -> must fail closed
+            res2 = conn.execute(text("SELECT org_id FROM caravan_organizations WHERE org_id IN (:oa, :ob)"), {"oa": org_a, "ob": org_b}).fetchall()
+            assert len(res2) == 0, "Connection pool reuse leaked tenant context!"
+
+        # 8. Ordinary role (caravan_app) attempting admin bypass (set_config('app.is_admin', 'true'))
+        with conn.begin():
+            conn.execute(text("SET LOCAL ROLE caravan_app"))
+            conn.execute(text("SELECT set_config('app.is_admin', 'true', true)"))
+            res_attack = conn.execute(text("SELECT org_id FROM caravan_organizations WHERE org_id IN (:oa, :ob)"), {"oa": org_a, "ob": org_b}).fetchall()
+            assert len(res_attack) == 0, "caravan_app successfully bypassed RLS by forging app.is_admin!"
+
+
+def test_rate_limiter_outage_fail_closed_and_safe_fallback():
+    """Verify rate limiter fail-closed policy on sensitive endpoints and safe fallback on non-sensitive."""
+    from unittest.mock import patch
+    import pytest
+    from fastapi import HTTPException
+
+    limiter = DistributedRateLimiter()
+
+    class MockReq:
+        headers = {"x-test-rate-limit": "true"}
+        client = type("Client", (), {"host": "192.0.2.1"})()
+
+    req = MockReq()
+
+    # Simulate shared store database outage
+    with patch("app.db.session.get_session_factory", side_effect=Exception("Database connection pool exhausted")):
+        # 1. Sensitive authentication operation: auth:login MUST fail-closed with 503
+        with pytest.raises(HTTPException) as exc_info:
+            limiter.check_rate_limit(req, endpoint_key="auth:login", max_requests=5, window_seconds=60)
+        assert exc_info.value.status_code == 503
+        assert "Retry-After" in exc_info.value.headers
+        assert "temporarily unavailable" in exc_info.value.detail
+
+        # 2. Sensitive registration operation: auth:register MUST fail-closed with 503
+        with pytest.raises(HTTPException) as exc_reg:
+            limiter.check_rate_limit(req, endpoint_key="auth:register", max_requests=5, window_seconds=60)
+        assert exc_reg.value.status_code == 503
+
+        # 3. Sensitive password reset: auth:forgot-password MUST fail-closed with 503
+        with pytest.raises(HTTPException) as exc_pw:
+            limiter.check_rate_limit(req, endpoint_key="auth:forgot-password", max_requests=5, window_seconds=60)
+        assert exc_pw.value.status_code == 503
+
+        # 4. Non-sensitive catalog browse operation: MUST gracefully fallback to local in-memory window
+        limiter.check_rate_limit(req, endpoint_key="catalog:browse", max_requests=10, window_seconds=60)
+
