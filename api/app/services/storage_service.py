@@ -27,28 +27,42 @@ class StorageResult:
 class PrivateDocumentStorage:
     def __init__(self, base_dir: Optional[Path] = None):
         if base_dir is None:
-            # Stored securely under data/vault in the project root
-            base_dir = Path(__file__).resolve().parent.parent.parent / "data" / "vault"
+            if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+                base_dir = Path("/tmp/caravan/vault")
+            else:
+                base_dir = Path(__file__).resolve().parent.parent.parent / "data" / "vault"
         self.base_dir = base_dir
         self.docs_dir = self.base_dir / "documents"
         self.quarantine_dir = self.base_dir / "quarantine"
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
-        for d in (self.docs_dir, self.quarantine_dir):
-            d.mkdir(parents=True, exist_ok=True)
-            try:
-                os.chmod(d, 0o700)
-            except OSError:
-                pass
+        try:
+            for d in (self.docs_dir, self.quarantine_dir):
+                d.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.chmod(d, 0o700)
+                except OSError:
+                    pass
+        except OSError:
+            # Fallback to /tmp in read-only serverless filesystems
+            self.base_dir = Path("/tmp/caravan/vault")
+            self.docs_dir = self.base_dir / "documents"
+            self.quarantine_dir = self.base_dir / "quarantine"
+            for d in (self.docs_dir, self.quarantine_dir):
+                try:
+                    d.mkdir(parents=True, exist_ok=True)
+                    os.chmod(d, 0o700)
+                except OSError:
+                    pass
 
     def _get_org_doc_dir(self, org_id: str, quarantined: bool = False) -> Path:
         parent = self.quarantine_dir if quarantined else self.docs_dir
         # Sanitize org_id to prevent directory traversal
         safe_org = "".join(c for c in org_id if c.isalnum() or c in ("-", "_"))
         org_path = parent / safe_org
-        org_path.mkdir(parents=True, exist_ok=True)
         try:
+            org_path.mkdir(parents=True, exist_ok=True)
             os.chmod(org_path, 0o700)
         except OSError:
             pass

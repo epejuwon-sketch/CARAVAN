@@ -26,6 +26,14 @@ def test_effective_database_role_lifecycle_on_postgres():
     3. caravan_app has NOBYPASSRLS and NOSUPERUSER.
     4. Transaction rollback/commit reverts current_user and clears app.current_org_id.
     """
+    postgres_url = os.getenv("TEST_POSTGRES_URL")
+    if postgres_url:
+        os.environ["DATABASE_URL"] = postgres_url
+        from app.db.session import reset_engine, run_migrations
+        get_settings.cache_clear()
+        reset_engine()
+        run_migrations()
+
     engine = get_engine()
     if engine.dialect.name != "postgresql":
         pytest.skip("PostgreSQL dialect required for native role switching test.")
@@ -80,6 +88,13 @@ def test_effective_database_role_lifecycle_on_postgres():
 
 def test_admin_database_role_lifecycle_on_postgres():
     """Verify that platform admin operations assume caravan_admin."""
+    postgres_url = os.getenv("TEST_POSTGRES_URL")
+    if postgres_url:
+        os.environ["DATABASE_URL"] = postgres_url
+        from app.db.session import reset_engine
+        get_settings.cache_clear()
+        reset_engine()
+
     engine = get_engine()
     if engine.dialect.name != "postgresql":
         pytest.skip("PostgreSQL dialect required for native role switching test.")
