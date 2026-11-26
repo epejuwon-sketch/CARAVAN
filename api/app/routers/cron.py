@@ -54,9 +54,16 @@ def trigger_daily_discovery_cron(
 ):
     """Trigger the autonomous daily institutional funding discovery cycle."""
     logger.info("Initiating autonomous daily funding discovery cycle via cron trigger...")
-    results = DailyDiscoveryScheduler.execute_daily_cycle(db, actor="CRON:VERCEL_DAILY_DISCOVERY")
-    return {
-        "status": "COMPLETED",
-        "job": "AUTONOMOUS_DAILY_FUNDING_DISCOVERY",
-        "summary": results,
-    }
+    try:
+        results = DailyDiscoveryScheduler.execute_daily_cycle(db, actor="CRON:VERCEL_DAILY_DISCOVERY")
+        return {
+            "status": "COMPLETED",
+            "job": "AUTONOMOUS_DAILY_FUNDING_DISCOVERY",
+            "summary": results,
+        }
+    except Exception as exc:
+        logger.error("Daily discovery cron cycle failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Daily discovery cycle failed: {str(exc)}",
+        )

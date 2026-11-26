@@ -880,7 +880,11 @@ class DiscoveryEngine:
         }
 
     @staticmethod
-    def notify_matching_enterprises(db: Session, opportunity: FundingOpportunityRecord) -> int:
+    def notify_matching_enterprises(
+        db: Session,
+        opportunity: FundingOpportunityRecord,
+        cached_enterprise_users: Optional[List[Any]] = None,
+    ) -> int:
         """Dispatches personalized notifications to registered enterprises matching opportunity criteria."""
         notified_count = 0
         opp_sectors = set(opportunity.eligible_sectors or [])
@@ -894,10 +898,20 @@ class DiscoveryEngine:
         )
 
         try:
-            orgs = db.execute(select(OrganizationRecord)).scalars().all()
-            for org in orgs:
-                org_sector = (org.sector or "").strip().lower()
-                org_country = (org.country or "").strip().lower()
+            if cached_enterprise_users is not None:
+                enterprise_users = cached_enterprise_users
+            else:
+                stmt = select(
+                    UserRecord.user_id,
+                    OrganizationRecord.org_id,
+                    OrganizationRecord.sector,
+                    OrganizationRecord.country,
+                ).join(OrganizationRecord, UserRecord.organization_id == OrganizationRecord.org_id).limit(100)
+                enterprise_users = db.execute(stmt).all()
+
+            for user_id, org_id, sector, country in enterprise_users:
+                org_sector = (sector or "").strip().lower()
+                org_country = (country or "").strip().lower()
 
                 # Sector match: if opp is Multi-Sector or matches org sector
                 sector_match = (
@@ -913,21 +927,19 @@ class DiscoveryEngine:
                 )
 
                 if sector_match and country_match:
-                    users = db.execute(
-                        select(UserRecord).where(UserRecord.organization_id == org.org_id)
-                    ).scalars().all()
-                    for u in users:
-                        notif = NotificationRecord(
-                            user_id=u.user_id,
-                            title=f"New Matched Opportunity: {opportunity.title}",
-                            message=(
-                                f"{opportunity.provider} has published '{opportunity.title}' ({opportunity.amount_display}). "
-                                f"AURELIA matched your {org.sector} profile in {org.country}."
-                            ),
-                            category="OPPORTUNITY",
-                        )
-                        db.add(notif)
-                        notified_count += 1
+                    notif = NotificationRecord(
+                        user_id=user_id,
+                        title=f"New Matched Opportunity: {opportunity.title}",
+                        message=(
+                            f"{opportunity.provider} has published '{opportunity.title}' ({opportunity.amount_display}). "
+                            f"AURELIA matched your {sector or 'enterprise'} profile in {country or 'Africa'}."
+                        ),
+                        category="OPPORTUNITY",
+                    )
+                    db.add(notif)
+                    notified_count += 1
+                    if notified_count >= 50:
+                        break
 
             if notified_count > 0:
                 db.commit()
@@ -1194,6 +1206,19 @@ class DiscoveryEngine:
             "details": [],
         }
 
+        # Pre-cache enterprise users in single joined query for instantaneous matching
+        cached_enterprise_users = None
+        try:
+            stmt = select(
+                UserRecord.user_id,
+                OrganizationRecord.org_id,
+                OrganizationRecord.sector,
+                OrganizationRecord.country,
+            ).join(OrganizationRecord, UserRecord.organization_id == OrganizationRecord.org_id).limit(100)
+            cached_enterprise_users = db.execute(stmt).all()
+        except Exception as cache_err:
+            logger.warning("Could not pre-fetch enterprise users for discovery matching: %s", cache_err)
+
         # 1. Ingest candidates
         for candidate in candidates_pool:
             res = DiscoveryEngine.ingest_discovered_opportunity(db, candidate, discovered_by=actor)
@@ -1205,7 +1230,9 @@ class DiscoveryEngine:
                     # Dispatch enterprise notifications for newly published programs
                     opp_rec = db.get(FundingOpportunityRecord, res["opportunity_id"])
                     if opp_rec:
-                        notified = DiscoveryEngine.notify_matching_enterprises(db, opp_rec)
+                        notified = DiscoveryEngine.notify_matching_enterprises(
+                            db, opp_rec, cached_enterprise_users=cached_enterprise_users
+                        )
                         results["notifications_dispatched"] += notified
                 else:
                     results["pending_review_count"] += 1
