@@ -21,6 +21,11 @@ _caravan_app = None
 
 try:
     from app.main import app as _caravan_app
+    try:
+        from app.db.session import run_migrations
+        run_migrations()
+    except Exception as mig_err:
+        sys.stderr.write(f"[CARAVAN COLD START MIGRATION NOTICE]: {mig_err}\n")
 except Exception as exc:
     err_msg = str(exc)
     if "JWT_SECRET_KEY" in err_msg:

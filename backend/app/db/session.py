@@ -289,135 +289,136 @@ def _execute_migrations():
     from app.db import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
-    with engine.begin() as conn:
-        dialect_name = engine.dialect.name
-        if dialect_name == "postgresql":
-            migration_statements = [
-                # caravan_funding_opportunities
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS source_retrieval_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_method VARCHAR(64) DEFAULT 'MANUAL_REGISTRY_AUDIT'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_evidence JSON DEFAULT '{}'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 1.0",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS evidence_completeness VARCHAR(32) DEFAULT 'COMPLETE'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS next_verification_at TIMESTAMPTZ",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_history JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS publication_status VARCHAR(32) DEFAULT 'PUBLISHED'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS official_application_url VARCHAR(500)",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS supporting_source_urls JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_applicant_types JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_countries JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_states JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_sectors JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS funding_structure VARCHAR(120) DEFAULT 'DIRECT_DISBURSEMENT'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS business_stage VARCHAR(120) DEFAULT 'ALL_STAGES'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS age_restrictions VARCHAR(120) DEFAULT 'NO_RESTRICTION'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS registration_required BOOLEAN DEFAULT TRUE",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS application_method VARCHAR(120) DEFAULT 'ONLINE_PORTAL'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS opportunity_status VARCHAR(64) DEFAULT 'OPEN'",
-                "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS important_conditions TEXT DEFAULT ''",
-                # caravan_organizations
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS annual_revenue_ngn FLOAT DEFAULT 0.0",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS cac_registered BOOLEAN DEFAULT TRUE",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS years_in_operation INTEGER DEFAULT 1",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS female_led BOOLEAN DEFAULT FALSE",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS youth_led BOOLEAN DEFAULT TRUE",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS products_services TEXT DEFAULT ''",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS target_customers VARCHAR(255) DEFAULT ''",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS business_model VARCHAR(120) DEFAULT 'B2B'",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS growth_objectives TEXT DEFAULT ''",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS intended_use_of_funds TEXT DEFAULT ''",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS previous_funding_history JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_score FLOAT DEFAULT 0.0",
-                "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_breakdown JSON DEFAULT '{}'",
-                # caravan_documents
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS storage_path VARCHAR(512)",
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS content_type VARCHAR(128) DEFAULT 'application/octet-stream'",
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(32) DEFAULT 'AVAILABLE'",
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_details JSON DEFAULT '{}'",
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS sha256_hash VARCHAR(64)",
-                "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
-                # copilot tables (idempotent creation)
-                """CREATE TABLE IF NOT EXISTS caravan_copilot_approvals (
-                    approval_id VARCHAR(64) PRIMARY KEY,
-                    organization_id VARCHAR(64) NOT NULL,
-                    user_id VARCHAR(64) NOT NULL,
-                    target_type VARCHAR(64) NOT NULL,
-                    target_id VARCHAR(64) NOT NULL,
-                    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-                    approval_type VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER_APPROVAL',
-                    authorizer_role VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER',
-                    authorizer_user_id VARCHAR(64),
-                    override_reason TEXT NOT NULL DEFAULT '',
-                    remaining_gaps JSON NOT NULL DEFAULT '[]',
-                    customer_notes TEXT NOT NULL DEFAULT '',
-                    approval_hash VARCHAR(64),
-                    approved_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )""",
-                """CREATE TABLE IF NOT EXISTS caravan_copilot_submissions (
-                    submission_id VARCHAR(64) PRIMARY KEY,
-                    application_id VARCHAR(64) NOT NULL,
-                    organization_id VARCHAR(64) NOT NULL,
-                    opportunity_id VARCHAR(64) NOT NULL,
-                    approval_id VARCHAR(64) NOT NULL,
-                    submission_channel VARCHAR(64) NOT NULL DEFAULT 'OFFICIAL_PORTAL',
-                    submission_reference VARCHAR(128) NOT NULL,
-                    confirmation_status VARCHAR(64) NOT NULL DEFAULT 'PACKAGE_PREPARED',
-                    confirmation_details JSON NOT NULL DEFAULT '{}',
-                    official_portal_url VARCHAR(500),
-                    guided_manual_steps JSON NOT NULL DEFAULT '[]',
-                    payload_snapshot JSON NOT NULL DEFAULT '{}',
-                    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )""",
-                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS confirmation_details JSON DEFAULT '{}'",
-                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS official_portal_url VARCHAR(500)",
-                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS guided_manual_steps JSON DEFAULT '[]'",
-                "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS payload_snapshot JSON DEFAULT '{}'",
-                """CREATE TABLE IF NOT EXISTS caravan_copilot_sessions (
-                    session_id VARCHAR(64) PRIMARY KEY,
-                    organization_id VARCHAR(64) NOT NULL,
-                    user_id VARCHAR(64) NOT NULL,
-                    title VARCHAR(255) NOT NULL DEFAULT 'New Conversation',
-                    context_mode VARCHAR(64) NOT NULL DEFAULT 'GENERAL',
-                    active_opportunity_id VARCHAR(64),
-                    active_application_id VARCHAR(64),
-                    is_archived BOOLEAN NOT NULL DEFAULT FALSE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )""",
-                """CREATE TABLE IF NOT EXISTS caravan_copilot_messages (
-                    message_id VARCHAR(64) PRIMARY KEY,
-                    session_id VARCHAR(64) NOT NULL,
-                    sender VARCHAR(32) NOT NULL,
-                    content TEXT NOT NULL,
-                    citations JSON NOT NULL DEFAULT '[]',
-                    actions JSON NOT NULL DEFAULT '[]',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )""",
-                """CREATE TABLE IF NOT EXISTS caravan_application_drafts (
-                    draft_id VARCHAR(64) PRIMARY KEY,
-                    application_id VARCHAR(64) NOT NULL,
-                    organization_id VARCHAR(64) NOT NULL,
-                    opportunity_id VARCHAR(64) NOT NULL,
-                    title VARCHAR(255) NOT NULL,
-                    executive_summary TEXT NOT NULL DEFAULT '',
-                    problem_statement TEXT NOT NULL DEFAULT '',
-                    solution_narrative TEXT NOT NULL DEFAULT '',
-                    budget_breakdown JSON NOT NULL DEFAULT '[]',
-                    sections JSON NOT NULL DEFAULT '[]',
-                    validation_status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
-                    validation_notes JSON NOT NULL DEFAULT '[]',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )""",
-            ]
+    dialect_name = engine.dialect.name
+    if dialect_name == "postgresql":
+        migration_statements = [
+            # caravan_funding_opportunities
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS source_retrieval_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_method VARCHAR(64) DEFAULT 'MANUAL_REGISTRY_AUDIT'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_evidence JSON DEFAULT '{}'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS confidence_score FLOAT DEFAULT 1.0",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS evidence_completeness VARCHAR(32) DEFAULT 'COMPLETE'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS next_verification_at TIMESTAMPTZ",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS verification_history JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS publication_status VARCHAR(32) DEFAULT 'PUBLISHED'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS official_application_url VARCHAR(500)",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS supporting_source_urls JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_applicant_types JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_countries JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_states JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS eligible_sectors JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS funding_structure VARCHAR(120) DEFAULT 'DIRECT_DISBURSEMENT'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS business_stage VARCHAR(120) DEFAULT 'ALL_STAGES'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS age_restrictions VARCHAR(120) DEFAULT 'NO_RESTRICTION'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS registration_required BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS application_method VARCHAR(120) DEFAULT 'ONLINE_PORTAL'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS opportunity_status VARCHAR(64) DEFAULT 'OPEN'",
+            "ALTER TABLE caravan_funding_opportunities ADD COLUMN IF NOT EXISTS important_conditions TEXT DEFAULT ''",
+            # caravan_organizations
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS annual_revenue_ngn FLOAT DEFAULT 0.0",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS cac_registered BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS years_in_operation INTEGER DEFAULT 1",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS female_led BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS youth_led BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS products_services TEXT DEFAULT ''",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS target_customers VARCHAR(255) DEFAULT ''",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS business_model VARCHAR(120) DEFAULT 'B2B'",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS growth_objectives TEXT DEFAULT ''",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS intended_use_of_funds TEXT DEFAULT ''",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS previous_funding_history JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_score FLOAT DEFAULT 0.0",
+            "ALTER TABLE caravan_organizations ADD COLUMN IF NOT EXISTS readiness_breakdown JSON DEFAULT '{}'",
+            # caravan_documents
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS storage_path VARCHAR(512)",
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS content_type VARCHAR(128) DEFAULT 'application/octet-stream'",
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_status VARCHAR(32) DEFAULT 'AVAILABLE'",
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS scan_details JSON DEFAULT '{}'",
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS sha256_hash VARCHAR(64)",
+            "ALTER TABLE caravan_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            # copilot tables (idempotent creation)
+            """CREATE TABLE IF NOT EXISTS caravan_copilot_approvals (
+                approval_id VARCHAR(64) PRIMARY KEY,
+                organization_id VARCHAR(64) NOT NULL,
+                user_id VARCHAR(64) NOT NULL,
+                target_type VARCHAR(64) NOT NULL,
+                target_id VARCHAR(64) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+                approval_type VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER_APPROVAL',
+                authorizer_role VARCHAR(32) NOT NULL DEFAULT 'CUSTOMER',
+                authorizer_user_id VARCHAR(64),
+                override_reason TEXT NOT NULL DEFAULT '',
+                remaining_gaps JSON NOT NULL DEFAULT '[]',
+                customer_notes TEXT NOT NULL DEFAULT '',
+                approval_hash VARCHAR(64),
+                approved_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS caravan_copilot_submissions (
+                submission_id VARCHAR(64) PRIMARY KEY,
+                application_id VARCHAR(64) NOT NULL,
+                organization_id VARCHAR(64) NOT NULL,
+                opportunity_id VARCHAR(64) NOT NULL,
+                approval_id VARCHAR(64) NOT NULL,
+                submission_channel VARCHAR(64) NOT NULL DEFAULT 'OFFICIAL_PORTAL',
+                submission_reference VARCHAR(128) NOT NULL,
+                confirmation_status VARCHAR(64) NOT NULL DEFAULT 'PACKAGE_PREPARED',
+                confirmation_details JSON NOT NULL DEFAULT '{}',
+                official_portal_url VARCHAR(500),
+                guided_manual_steps JSON NOT NULL DEFAULT '[]',
+                payload_snapshot JSON NOT NULL DEFAULT '{}',
+                submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+            "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS confirmation_details JSON DEFAULT '{}'",
+            "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS official_portal_url VARCHAR(500)",
+            "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS guided_manual_steps JSON DEFAULT '[]'",
+            "ALTER TABLE caravan_copilot_submissions ADD COLUMN IF NOT EXISTS payload_snapshot JSON DEFAULT '{}'",
+            """CREATE TABLE IF NOT EXISTS caravan_copilot_sessions (
+                session_id VARCHAR(64) PRIMARY KEY,
+                organization_id VARCHAR(64) NOT NULL,
+                user_id VARCHAR(64) NOT NULL,
+                title VARCHAR(255) NOT NULL DEFAULT 'New Conversation',
+                context_mode VARCHAR(64) NOT NULL DEFAULT 'GENERAL',
+                active_opportunity_id VARCHAR(64),
+                active_application_id VARCHAR(64),
+                is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS caravan_copilot_messages (
+                message_id VARCHAR(64) PRIMARY KEY,
+                session_id VARCHAR(64) NOT NULL,
+                sender VARCHAR(32) NOT NULL,
+                content TEXT NOT NULL,
+                citations JSON NOT NULL DEFAULT '[]',
+                actions JSON NOT NULL DEFAULT '[]',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+            """CREATE TABLE IF NOT EXISTS caravan_application_drafts (
+                draft_id VARCHAR(64) PRIMARY KEY,
+                application_id VARCHAR(64) NOT NULL,
+                organization_id VARCHAR(64) NOT NULL,
+                opportunity_id VARCHAR(64) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                executive_summary TEXT NOT NULL DEFAULT '',
+                problem_statement TEXT NOT NULL DEFAULT '',
+                solution_narrative TEXT NOT NULL DEFAULT '',
+                budget_breakdown JSON NOT NULL DEFAULT '[]',
+                sections JSON NOT NULL DEFAULT '[]',
+                validation_status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+                validation_notes JSON NOT NULL DEFAULT '[]',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )""",
+        ]
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for stmt in migration_statements:
                 try:
                     conn.execute(text(stmt))
-                except Exception:
-                    pass
-        elif dialect_name == "sqlite":
+                except Exception as stmt_err:
+                    logger.debug("Non-blocking PostgreSQL migration notice: %s", stmt_err)
+    elif dialect_name == "sqlite":
+        with engine.begin() as conn:
             result = conn.execute(text("PRAGMA table_info(caravan_funding_opportunities)")).fetchall()
             existing_cols = {row[1] for row in result}
             sqlite_cols = [

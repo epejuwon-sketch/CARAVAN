@@ -207,21 +207,22 @@ class ApplicationAgent:
 
         # Invalidate/supersede unsubmitted approvals for this application when a new draft is created
         try:
-            prior_approvals = db.execute(
-                select(CopilotApprovalRecord).where(
-                    CopilotApprovalRecord.organization_id == org_id,
-                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-                )
-            ).scalars().all()
-            for p in prior_approvals:
-                if p.target_type == "APPLICATION_DRAFT":
-                    has_sub = db.execute(
-                        select(ApplicationSubmissionRecord.submission_id).where(
-                            ApplicationSubmissionRecord.approval_id == p.approval_id
-                        )
-                    ).first()
-                    if not has_sub:
-                        p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
+            with db.begin_nested():
+                prior_approvals = db.execute(
+                    select(CopilotApprovalRecord).where(
+                        CopilotApprovalRecord.organization_id == org_id,
+                        CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                    )
+                ).scalars().all()
+                for p in prior_approvals:
+                    if p.target_type == "APPLICATION_DRAFT":
+                        has_sub = db.execute(
+                            select(ApplicationSubmissionRecord.submission_id).where(
+                                ApplicationSubmissionRecord.approval_id == p.approval_id
+                            )
+                        ).first()
+                        if not has_sub:
+                            p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
         except Exception as e:
             logger.warning("Could not supersede prior approvals on draft creation: %s", e)
 
@@ -1068,21 +1069,22 @@ class ApplicationAgent:
         invalidated_count = 0
         if material_keys.intersection(updated_fields.keys()):
             try:
-                pending_approvals = db.execute(
-                    select(CopilotApprovalRecord).where(
-                        CopilotApprovalRecord.organization_id == org_id,
-                        CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-                    )
-                ).scalars().all()
-                for appr in pending_approvals:
-                    has_submission = db.execute(
-                        select(ApplicationSubmissionRecord.submission_id).where(
-                            ApplicationSubmissionRecord.approval_id == appr.approval_id
+                with db.begin_nested():
+                    pending_approvals = db.execute(
+                        select(CopilotApprovalRecord).where(
+                            CopilotApprovalRecord.organization_id == org_id,
+                            CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
                         )
-                    ).first()
-                    if not has_submission:
-                        appr.status = "INVALIDATED_PROFILE_MODIFIED"
-                        invalidated_count += 1
+                    ).scalars().all()
+                    for appr in pending_approvals:
+                        has_submission = db.execute(
+                            select(ApplicationSubmissionRecord.submission_id).where(
+                                ApplicationSubmissionRecord.approval_id == appr.approval_id
+                            )
+                        ).first()
+                        if not has_submission:
+                            appr.status = "INVALIDATED_PROFILE_MODIFIED"
+                            invalidated_count += 1
             except Exception as e:
                 logger.warning("Could not query or invalidate approvals: %s", e)
 
