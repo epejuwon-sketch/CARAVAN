@@ -284,6 +284,52 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def set_tenant_context(
+    db: Session,
+    org_id: str | None = None,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> None:
+    """Sets transaction-local configuration parameters in PostgreSQL for Row-Level Security.
+
+    Uses is_local=True and SET LOCAL ROLE so the context is strictly bound to the active transaction and
+    automatically reverts on COMMIT or ROLLBACK, preventing leakage across pooled connections.
+    Safely no-ops on SQLite / non-PostgreSQL dialects.
+    """
+    try:
+        bind = db.get_bind()
+        if bind.dialect.name == "postgresql":
+            safe_org = (org_id or "").strip()
+            safe_user = (user_id or "").strip()
+            admin_val = "true" if is_admin else "false"
+
+            if not is_admin:
+                try:
+                    db.execute(text("SET LOCAL ROLE caravan_app"))
+                except Exception:
+                    pass
+            else:
+                try:
+                    db.execute(text("SET LOCAL ROLE NONE"))
+                except Exception:
+                    pass
+
+            db.execute(
+                text("SELECT set_config('app.current_org_id', :org_id, true)"),
+                {"org_id": safe_org},
+            )
+            db.execute(
+                text("SELECT set_config('app.current_user_id', :user_id, true)"),
+                {"user_id": safe_user},
+            )
+            db.execute(
+                text("SELECT set_config('app.is_admin', :is_admin, true)"),
+                {"is_admin": admin_val},
+            )
+    except Exception as exc:
+        logger.debug("set_tenant_context non-blocking notice: %s", exc)
+
+
 def _execute_migrations():
     """Initializes tables and executes idempotent schema migrations."""
     engine = get_engine()
@@ -418,6 +464,16 @@ def _execute_migrations():
                     conn.execute(text(stmt))
                 except Exception as stmt_err:
                     logger.debug("Non-blocking PostgreSQL migration notice: %s", stmt_err)
+
+            # Idempotently execute 002 native PostgreSQL RLS and token revocation migration
+            try:
+                migration_002 = Path(__file__).resolve().parents[2] / "migrations" / "002_native_postgresql_rls_and_revocation.sql"
+                if migration_002.exists():
+                    sql_content = migration_002.read_text(encoding="utf-8")
+                    conn.execute(text(sql_content))
+            except Exception as rls_err:
+                logger.debug("Non-blocking 002 RLS migration notice: %s", rls_err)
+
     elif dialect_name == "sqlite":
         with engine.begin() as conn:
             result = conn.execute(text("PRAGMA table_info(caravan_funding_opportunities)")).fetchall()
@@ -452,6 +508,18 @@ def _execute_migrations():
                         conn.execute(text(f"ALTER TABLE caravan_funding_opportunities ADD COLUMN {col_name} {col_def}"))
                     except Exception:
                         pass
+
+            # SQLite compatibility columns for caravan_users
+            try:
+                user_cols_res = conn.execute(text("PRAGMA table_info(caravan_users)")).fetchall()
+                existing_user_cols = {row[1] for row in user_cols_res}
+                if "revoked_before_at" not in existing_user_cols:
+                    conn.execute(text("ALTER TABLE caravan_users ADD COLUMN revoked_before_at DATETIME"))
+                if "token_version" not in existing_user_cols:
+                    conn.execute(text("ALTER TABLE caravan_users ADD COLUMN token_version INTEGER DEFAULT 1"))
+            except Exception:
+                pass
+
 
 
 def run_migrations():

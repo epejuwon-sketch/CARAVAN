@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Set
+from typing import Set, Optional
 from fastapi import Header, HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import decode_access_token
+from app.db.session import get_db
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -20,6 +22,8 @@ class CaravanPrincipal:
     email: str
     role: str
     permissions: Set[str]
+    jti: Optional[str] = None
+    raw_token: Optional[str] = None
 
     @property
     def is_admin(self) -> bool:
@@ -196,6 +200,7 @@ ROLE_PERMISSIONS: dict[str, Set[str]] = {
 
 def get_current_principal(
     auth: HTTPAuthorizationCredentials = Depends(security_scheme),
+    db: Session = Depends(get_db),
 ) -> CaravanPrincipal:
     if not auth or not auth.credentials:
         raise HTTPException(
@@ -213,18 +218,108 @@ def get_current_principal(
         )
 
     user_id = payload.get("sub")
-    org_id = payload.get("org_id", f"org_{user_id}")
-    email = payload.get("email", "")
-    role = payload.get("role", "CUSTOMER")
-    perms = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS["CUSTOMER"])
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Malformed authentication token: missing subject.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    return CaravanPrincipal(
+    jti = payload.get("jti")
+    token_iat = payload.get("iat")
+    settings = get_settings()
+
+    from app.db.models import UserRecord, RevokedTokenRecord
+    from app.db.session import set_tenant_context
+
+    # 1. Multi-instance token revocation blacklist check
+    if jti and db is not None:
+        try:
+            revoked = db.get(RevokedTokenRecord, jti)
+            if revoked is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # 2. Database account status and revocation timestamp enforcement
+    user = None
+    if db is not None:
+        try:
+            user = db.get(UserRecord, user_id)
+        except Exception:
+            user = None
+
+    if user is not None:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account has been deactivated.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Check token version
+        token_ver = payload.get("token_version")
+        if token_ver is not None and getattr(user, "token_version", None) is not None:
+            if int(token_ver) < int(user.token_version):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token version superseded. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+        # Check revocation timestamp (password reset, security credential change)
+        if token_iat and getattr(user, "revoked_before_at", None):
+            revoked_epoch = user.revoked_before_at.timestamp()
+            # Allow 1-second margin of error for clock differences
+            if float(token_iat) < (revoked_epoch - 1.0):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked due to a credential or status update.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+        org_id = user.organization_id
+        email = user.email
+        role = user.role
+    else:
+        # In production, unregistered or ghost subjects are strictly rejected
+        if settings.CARAVAN_ENV == "production":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account not found or deactivated.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        org_id = payload.get("org_id", f"org_{user_id}")
+        email = payload.get("email", "")
+        role = payload.get("role", "CUSTOMER")
+
+    perms = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS["CUSTOMER"])
+    principal = CaravanPrincipal(
         user_id=user_id,
         organization_id=org_id,
         email=email,
         role=role,
         permissions=perms,
+        jti=jti,
+        raw_token=auth.credentials,
     )
+
+    # 3. Transaction-scoped PostgreSQL Row-Level Security tenant context
+    if db is not None:
+        set_tenant_context(
+            db,
+            org_id=org_id,
+            user_id=user_id,
+            is_admin=principal.is_admin,
+        )
+
+    return principal
 
 
 def require_permission(perm: str):
@@ -242,6 +337,7 @@ import secrets
 
 def verify_ultron_bridge(
     x_ultron_bridge_key: str = Header(None, alias="X-Ultron-Bridge-Key"),
+    db: Session = Depends(get_db),
 ) -> CaravanPrincipal:
     settings = get_settings()
     configured_key = settings.ULTRON_BRIDGE_API_KEY.strip()
@@ -255,10 +351,15 @@ def verify_ultron_bridge(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing ULTRON S2S Bridge authentication key.",
         )
-    return CaravanPrincipal(
+    principal = CaravanPrincipal(
         user_id="svc_ultron_operations",
         organization_id="org_ultron_master",
         email="operations@ultron.internal",
         role="ULTRON_BRIDGE",
         permissions=ROLE_PERMISSIONS["ULTRON_BRIDGE"],
     )
+    if db is not None:
+        from app.db.session import set_tenant_context
+        set_tenant_context(db, org_id="org_ultron_master", user_id="svc_ultron_operations", is_admin=True)
+    return principal
+

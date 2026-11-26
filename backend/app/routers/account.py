@@ -339,11 +339,28 @@ def api_request_account_deletion(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
 
-    # 1. Immediately deactivate user to prevent further authentication
+    # 1. Immediately deactivate user and invalidate all issued tokens
+    now = datetime.now(timezone.utc)
     user.is_active = False
+    user.revoked_before_at = now
+    user.token_version = (getattr(user, "token_version", 1) or 1) + 1
+
+    # Multi-instance token blacklist
+    from datetime import timedelta
+    from app.db.models import RevokedTokenRecord, ApplicationDraftRecord
+    if principal.jti:
+        try:
+            rev_entry = RevokedTokenRecord(
+                token_jti=principal.jti,
+                user_id=principal.user_id,
+                revoked_at=now,
+                expires_at=now + timedelta(days=7),
+            )
+            db.merge(rev_entry)
+        except Exception:
+            pass
 
     # 2. Mark uploaded documents as soft-deleted and trigger storage cleanup
-    now = datetime.now(timezone.utc)
     docs = db.execute(
         select(DocumentMetadataRecord).where(
             DocumentMetadataRecord.organization_id == principal.organization_id
@@ -353,7 +370,15 @@ def api_request_account_deletion(
         d.deleted_at = now
         d.scan_status = "PURGED"
 
-    # 3. Clear saved opportunity bookmarks
+    # 3. Clear application drafts and saved opportunity bookmarks
+    drafts = db.execute(
+        select(ApplicationDraftRecord).where(
+            ApplicationDraftRecord.organization_id == principal.organization_id
+        )
+    ).scalars().all()
+    for dr in drafts:
+        db.delete(dr)
+
     saved = db.execute(
         select(SavedOpportunityRecord).where(
             SavedOpportunityRecord.organization_id == principal.organization_id
@@ -362,7 +387,7 @@ def api_request_account_deletion(
     for s in saved:
         db.delete(s)
 
-    # 4. Record statutory audit trail (retained per NDPA / CAMA compliance requirements)
+    # 4. Record statutory audit trail (retained per NDPA 2023 & CAMA 2020 tax/audit requirements)
     audit = AuditLogRecord(
         actor=principal.email,
         action="ACCOUNT_DELETED",
@@ -374,6 +399,8 @@ def api_request_account_deletion(
             "reason": body.reason or "Customer self-service request",
             "purged_at": now.isoformat(),
             "documents_purged_count": len(docs),
+            "drafts_purged_count": len(drafts),
+            "statutory_retention_basis": "CAMA 2020 Section 375 & NDPA 2023 financial audit exception",
         },
     )
     db.add(audit)

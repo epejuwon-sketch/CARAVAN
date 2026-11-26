@@ -40,6 +40,8 @@ class UserRecord(Base):
     full_name = Column(String(160), nullable=False)
     role = Column(String(32), default="CUSTOMER", nullable=False)  # CUSTOMER, ADMIN
     is_active = Column(Boolean, default=True, nullable=False)
+    revoked_before_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    token_version = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
@@ -374,5 +376,24 @@ class ApplicationSubmissionRecord(Base):
     guided_manual_steps = Column(JSON, default=list, nullable=False)
     payload_snapshot = Column(JSON, default=dict, nullable=False)
     submitted_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class RateLimitRecord(Base):
+    __tablename__ = "caravan_rate_limits"
+
+    bucket_key = Column(String(160), primary_key=True)
+    request_count = Column(Integer, default=1, nullable=False)
+    window_start_epoch = Column(Float, nullable=False, index=True)
+    last_request_epoch = Column(Float, nullable=False)
+
+
+class RevokedTokenRecord(Base):
+    __tablename__ = "caravan_revoked_tokens"
+
+    token_jti = Column(String(64), primary_key=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
 
 

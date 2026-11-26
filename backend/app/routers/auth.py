@@ -97,15 +97,32 @@ def api_logout(
     principal: CaravanPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
-    """Explicitly records session termination audit event."""
-    from app.db.models import AuditLogRecord
+    """Explicitly records session termination audit event and invalidates active JWT."""
+    from datetime import datetime, timezone, timedelta
+    from app.db.models import AuditLogRecord, RevokedTokenRecord
+
+    now = datetime.now(timezone.utc)
     try:
+        # 1. Multi-instance token revocation blacklist
+        if principal.jti:
+            revoked_entry = RevokedTokenRecord(
+                token_jti=principal.jti,
+                user_id=principal.user_id,
+                revoked_at=now,
+                expires_at=now + timedelta(days=7),
+            )
+            db.merge(revoked_entry)
+
+        # 2. Record session termination audit event
         audit = AuditLogRecord(
             actor=principal.email,
             action="USER_LOGOUT",
             resource=f"user:{principal.user_id}",
             outcome="SUCCESS",
-            details={"organization_id": principal.organization_id},
+            details={
+                "organization_id": principal.organization_id,
+                "jti": principal.jti,
+            },
         )
         db.add(audit)
         db.commit()
@@ -237,14 +254,18 @@ def api_reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
 
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     user.password_hash = hash_password(body.new_password)
+    user.revoked_before_at = now
+    user.token_version = (getattr(user, "token_version", 1) or 1) + 1
     
     audit = AuditLogRecord(
         actor=user.email,
         action="PASSWORD_RESET_COMPLETED",
         resource=f"user:{user.user_id}",
         outcome="SUCCESS",
-        details={"user_id": user_id},
+        details={"user_id": user_id, "token_version": user.token_version},
     )
     db.add(audit)
     db.commit()

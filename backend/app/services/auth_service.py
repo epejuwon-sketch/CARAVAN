@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 
 from app.core.security import hash_password, verify_password, create_access_token
 from app.db.models import UserRecord, OrganizationRecord, SubscriptionRecord, AuditLogRecord, gen_id
+from app.db.session import set_tenant_context
 
 
 def register_customer(
@@ -23,6 +24,7 @@ def register_customer(
     sector: str = "Technology",
     stage: str = "SEED",
 ) -> dict:
+    set_tenant_context(db, is_admin=True)
     email_clean = email.strip().lower()
     existing = db.execute(select(UserRecord).where(UserRecord.email == email_clean)).scalar_one_or_none()
     if existing:
@@ -92,6 +94,7 @@ def register_customer(
 
 
 def authenticate_user(db: Session, email: str, password: str) -> dict:
+    set_tenant_context(db, is_admin=True)
     email_clean = email.strip().lower()
     user = db.execute(select(UserRecord).where(UserRecord.email == email_clean)).scalar_one_or_none()
     if not user or not verify_password(password, user.password_hash):
@@ -128,7 +131,13 @@ def authenticate_user(db: Session, email: str, password: str) -> dict:
         import logging
         logging.getLogger("caravan").warning("Could not persist login audit log: %s", audit_err)
 
-    token = create_access_token({"sub": user.user_id, "org_id": user.organization_id, "email": user.email, "role": user.role})
+    token = create_access_token({
+        "sub": user.user_id,
+        "org_id": user.organization_id,
+        "email": user.email,
+        "role": user.role,
+        "token_version": getattr(user, "token_version", 1),
+    })
     return {
         "access_token": token,
         "token_type": "bearer",
