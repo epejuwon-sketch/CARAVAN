@@ -81,7 +81,7 @@ class GeminiMultimodalOCRProvider(BaseOCRProvider):
     Zero-binary-dependency architecture ideal for Vercel serverless environments.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-flash-lite-latest"):
         self.api_key = api_key.strip()
         self.model = model.strip()
 

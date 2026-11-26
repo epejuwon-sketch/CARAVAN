@@ -242,8 +242,8 @@ class LocalRuleAIProvider(BaseAIProvider):
 class AIProviderFactory:
     """Provider-independent factory with resilient fallback logic."""
 
-    _discovered_working_model: Optional[str] = None
-    _discovered_auth_mode: str = "header"
+    _discovered_working_model: Optional[str] = "gemini-flash-lite-latest"
+    _discovered_auth_mode: str = "query"
     _discovered_api_version: str = "v1beta"
 
     @staticmethod
@@ -445,7 +445,7 @@ class AIProviderFactory:
                     params["key"] = api_key
                     
                 url = f"https://generativelanguage.googleapis.com/{api_ver}/models/{clean_model}:generateContent"
-                with httpx.Client(timeout=2.5) as client:
+                with httpx.Client(timeout=5.0) as client:
                     probe_res = client.post(
                         url,
                         json={"contents": [{"parts": [{"text": "ping"}]}]},
