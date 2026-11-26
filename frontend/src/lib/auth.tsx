@@ -30,14 +30,15 @@ export const DEMO_USER: User = {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(DEMO_USER);
   const [token, setToken] = useState<string | null>(() => safeGetStorage("caravan_token"));
-  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
   async function loadMe() {
     const savedToken = safeGetStorage("caravan_token");
     if (!savedToken) {
-      setUser(DEMO_USER);
+      setUser(null);
+      setToken(null);
       setLoading(false);
       return;
     }
@@ -51,10 +52,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         organization_id: data.organization_id,
         organization_name: data.organization?.name || "My Organization",
       });
+      setToken(savedToken);
     } catch {
       safeRemoveStorage("caravan_token");
       setToken(null);
-      setUser(DEMO_USER);
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -62,6 +64,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     loadMe();
+
+    const handleAuthExpired = () => {
+      setToken(null);
+      setUser(null);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("caravan-auth-expired", handleAuthExpired);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("caravan-auth-expired", handleAuthExpired);
+      }
+    };
   }, []);
 
   const login = (newToken: string, newUser: User) => {

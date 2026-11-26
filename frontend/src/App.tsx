@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 
 import { PortalLayout } from "./components/layout/PortalLayout";
+import { CopilotWidget } from "./components/copilot/CopilotWidget";
 
 function MainContent() {
   const { user, loading } = useAuth();
@@ -125,6 +126,7 @@ function MainContent() {
       <Navbar currentRoute={currentRoute} onNavigate={navigate} />
       <main style={{ flex: 1 }}>{renderPage()}</main>
       <Footer onNavigate={navigate} />
+      <CopilotWidget onNavigate={navigate} />
       <nav className="mobile-bottom-nav">
         {user ? (
           <>

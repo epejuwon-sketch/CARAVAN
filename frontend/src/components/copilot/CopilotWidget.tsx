@@ -59,7 +59,8 @@ interface Session {
 }
 
 export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const isAuthenticated = Boolean(user && token);
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -75,12 +76,12 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Initialize sessions when widget opens or mounts
+  // Initialize sessions when widget opens and user is authenticated
   useEffect(() => {
-    if (user && isOpen && !activeSessionId) {
+    if (isAuthenticated && isOpen && !activeSessionId) {
       loadSessions();
     }
-  }, [user, isOpen]);
+  }, [isAuthenticated, isOpen, activeSessionId]);
 
   useEffect(() => {
     if (isOpen && !isMinimized) {
@@ -122,6 +123,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
   }, [activeSessionId]);
 
   async function loadSessions() {
+    if (!isAuthenticated) return;
     try {
       const data = await apiFetch<any>("/api/v1/copilot/sessions");
       const list: Session[] = data.sessions || [];
@@ -132,11 +134,16 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         createNewSession();
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to load sessions");
+      if (err.message && (err.message.includes("401") || err.message.includes("Missing authentication") || err.message.includes("credentials"))) {
+        setErrorMsg("Session expired. Please sign in to resume chatting with AURELIA.");
+      } else {
+        setErrorMsg(err.message || "Failed to load sessions");
+      }
     }
   }
 
   async function createNewSession() {
+    if (!isAuthenticated) return;
     try {
       setLoading(true);
       setErrorMsg("");
@@ -177,13 +184,18 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         },
       ]);
     } catch (err: any) {
-      setErrorMsg(err.message || "Could not start new conversation with AURELIA");
+      if (err.message && (err.message.includes("401") || err.message.includes("Missing authentication") || err.message.includes("credentials"))) {
+        setErrorMsg("Session expired. Please sign in to resume chatting with AURELIA.");
+      } else {
+        setErrorMsg(err.message || "Could not start new conversation with AURELIA");
+      }
     } finally {
       setLoading(false);
     }
   }
 
   async function selectSession(sessionId: string) {
+    if (!isAuthenticated) return;
     setActiveSessionId(sessionId);
     setErrorMsg("");
     try {
@@ -207,13 +219,18 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         setMessages(msgs);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to retrieve conversation history");
+      if (err.message && (err.message.includes("401") || err.message.includes("Missing authentication") || err.message.includes("credentials"))) {
+        setErrorMsg("Session expired. Please sign in to resume chatting with AURELIA.");
+      } else {
+        setErrorMsg(err.message || "Failed to retrieve conversation history");
+      }
     } finally {
       setLoading(false);
     }
   }
 
   async function handleSendMessage(overrideText?: string) {
+    if (!isAuthenticated) return;
     const textToSend = (overrideText || inputPrompt).trim();
     if (!textToSend || loading) return;
 
@@ -263,7 +280,11 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
         window.speechSynthesis.speak(utterance);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || "AURELIA is momentarily busy. Please click Retry.");
+      if (err.message && (err.message.includes("401") || err.message.includes("Missing authentication") || err.message.includes("credentials"))) {
+        setErrorMsg("Session expired. Please sign in to resume chatting with AURELIA.");
+      } else {
+        setErrorMsg(err.message || "AURELIA is momentarily busy. Please click Retry.");
+      }
     } finally {
       setLoading(false);
     }
@@ -306,10 +327,6 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
       const utterance = new SpeechSynthesisUtterance(clean);
       window.speechSynthesis.speak(utterance);
     }
-  }
-
-  if (!user) {
-    return null; // Only available throughout authenticated experience
   }
 
   return (
@@ -361,8 +378,8 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                backgroundColor: "#22C55E",
-                boxShadow: "0 0 6px #22C55E",
+                backgroundColor: isAuthenticated ? "#22C55E" : "#C69D49",
+                boxShadow: isAuthenticated ? "0 0 6px #22C55E" : "0 0 6px #C69D49",
               }}
             />
           </div>
@@ -429,12 +446,12 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                       fontWeight: 600,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      backgroundColor: "rgba(34, 197, 94, 0.15)",
-                      color: "#4ADE80",
-                      border: "1px solid rgba(34, 197, 94, 0.3)",
+                      backgroundColor: isAuthenticated ? "rgba(34, 197, 94, 0.15)" : "rgba(198, 157, 73, 0.15)",
+                      color: isAuthenticated ? "#4ADE80" : "var(--accent-gold-bright)",
+                      border: isAuthenticated ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(198, 157, 73, 0.3)",
                     }}
                   >
-                    {modelLabel}
+                    {isAuthenticated ? modelLabel : "Sign In Required"}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
@@ -576,7 +593,108 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
 
           {/* Body */}
           {!isMinimized && (
-            <>
+            !isAuthenticated ? (
+              <div
+                style={{
+                  flex: 1,
+                  padding: "32px 24px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textAlign: "center",
+                  gap: 16,
+                  backgroundColor: "var(--bg-primary)",
+                }}
+              >
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(198, 157, 73, 0.12)",
+                    border: "1.5px solid #C69D49",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--accent-gold)",
+                    boxShadow: "0 0 24px rgba(198, 157, 73, 0.2)",
+                  }}
+                >
+                  <Sparkles size={26} />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: "#FFFFFF", margin: 0 }}>
+                    Sign in to chat with AURELIA
+                  </h3>
+                  <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5, margin: 0, maxWidth: 320 }}>
+                    AURELIA Funding Intelligence is reserved for authenticated accounts. Sign in to access multi-turn funding diagnostics, verified institutional grants, and automated application drafting.
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    width: "100%",
+                    padding: "14px 16px",
+                    borderRadius: "var(--radius-md)",
+                    backgroundColor: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid var(--border-subtle)",
+                    textAlign: "left",
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                    margin: "4px 0",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-gold-bright)" }}>
+                    <CheckCircle2 size={14} />
+                    <span>Search 35+ verified institutional grants & loans</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-gold-bright)" }}>
+                    <CheckCircle2 size={14} />
+                    <span>Zero-hallucination eligibility matching</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-gold-bright)" }}>
+                    <CheckCircle2 size={14} />
+                    <span>Vault document audits & readiness scores</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--accent-gold-bright)" }}>
+                    <CheckCircle2 size={14} />
+                    <span>13-step cryptographic application drafting</span>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onNavigate("login");
+                    }}
+                    className="btn btn-lg"
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    Sign In to CARAVAN
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onNavigate("register");
+                    }}
+                    className="btn btn-secondary"
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    Create Enterprise Account
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
               <div
                 style={{
                   flex: 1,
@@ -760,7 +878,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                   </div>
                 )}
 
-                {/* Error Banner with Retry */}
+                {/* Error Banner with Retry / Sign In */}
                 {errorMsg && (
                   <div
                     style={{
@@ -773,28 +891,53 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
+                      gap: 8,
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <AlertCircle size={15} />
                       <span>{errorMsg}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleSendMessage()}
-                      style={{
-                        padding: "3px 8px",
-                        borderRadius: 4,
-                        backgroundColor: "#EF4444",
-                        color: "white",
-                        border: "none",
-                        fontWeight: 600,
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Retry
-                    </button>
+                    {errorMsg.includes("sign in") || errorMsg.includes("Session expired") ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false);
+                          onNavigate("login");
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          backgroundColor: "#C69D49",
+                          color: "#050505",
+                          border: "none",
+                          fontWeight: 700,
+                          fontSize: 11,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Sign In
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleSendMessage()}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          backgroundColor: "#EF4444",
+                          color: "white",
+                          border: "none",
+                          fontWeight: 600,
+                          fontSize: 11,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -941,6 +1084,7 @@ export const CopilotWidget: React.FC<CopilotWidgetProps> = ({ onNavigate }) => {
                 </button>
               </div>
             </>
+            )
           )}
         </div>
       )}

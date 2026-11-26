@@ -49,6 +49,12 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      safeRemoveStorage("caravan_token");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("caravan-auth-expired"));
+      }
+    }
     let errMessage = `HTTP error ${response.status}`;
     try {
       const errData = await response.json();

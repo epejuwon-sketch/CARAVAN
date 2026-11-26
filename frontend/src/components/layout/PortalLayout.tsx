@@ -185,20 +185,32 @@ export const PortalLayout: React.FC<PortalLayoutProps> = ({
           </nav>
         </div>
 
-        {/* Bottom Sign Out */}
+        {/* Bottom Sign Out / Sign In */}
         <div style={{ paddingTop: 16, borderTop: "1px solid var(--border-subtle)" }}>
-          <button
-            type="button"
-            className="sidebar-link"
-            style={{ width: "100%", justifyContent: "flex-start", color: "var(--text-secondary)" }}
-            onClick={() => {
-              if (logout) logout();
-              onNavigate("home");
-            }}
-          >
-            <LogOut size={18} />
-            <span>Sign Out</span>
-          </button>
+          {user ? (
+            <button
+              type="button"
+              className="sidebar-link"
+              style={{ width: "100%", justifyContent: "flex-start", color: "var(--text-secondary)" }}
+              onClick={() => {
+                if (logout) logout();
+                onNavigate("home");
+              }}
+            >
+              <LogOut size={18} />
+              <span>Sign Out</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="sidebar-link"
+              style={{ width: "100%", justifyContent: "flex-start", color: "var(--accent-gold-bright)" }}
+              onClick={() => onNavigate("login")}
+            >
+              <User size={18} />
+              <span>Sign In</span>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -244,26 +256,37 @@ export const PortalLayout: React.FC<PortalLayoutProps> = ({
               />
             </button>
 
-            {/* Avatar JD */}
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "var(--radius-full)",
-                backgroundColor: "#161616",
-                border: "1.5px solid var(--accent-gold)",
-                color: "var(--accent-gold-bright)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-              title={user?.full_name || "John Doe"}
-            >
-              {initials}
-            </div>
+            {/* Avatar or Sign In button */}
+            {user ? (
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "#161616",
+                  border: "1.5px solid var(--accent-gold)",
+                  color: "var(--accent-gold-bright)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                title={user?.full_name || user?.email}
+                onClick={() => onNavigate("account")}
+              >
+                {initials}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => onNavigate("login")}
+              >
+                Sign In
+              </button>
+            )}
           </div>
         </header>
 
