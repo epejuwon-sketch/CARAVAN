@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     Index,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -40,8 +41,8 @@ class UserRecord(Base):
     full_name = Column(String(160), nullable=False)
     role = Column(String(32), default="CUSTOMER", nullable=False)  # CUSTOMER, ADMIN
     is_active = Column(Boolean, default=True, nullable=False)
-    revoked_before_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    token_version = Column(Integer, default=1, nullable=False)
+    revoked_before_at = Column(DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=True)
+    token_version = Column(Integer, server_default=text("1"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

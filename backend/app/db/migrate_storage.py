@@ -147,10 +147,10 @@ def safe_migrate_sqlite_to_postgres(sqlite_path: str | Path, pg_session: Session
                         text("""
                             INSERT INTO caravan_users (
                                 user_id, organization_id, email, password_hash,
-                                full_name, role, is_active, created_at
+                                full_name, role, is_active, revoked_before_at, token_version, created_at
                             ) VALUES (
                                 :user_id, :organization_id, :email, :password_hash,
-                                :full_name, :role, :is_active, CURRENT_TIMESTAMP
+                                :full_name, :role, :is_active, CURRENT_TIMESTAMP, 1, CURRENT_TIMESTAMP
                             )
                         """),
                         {
