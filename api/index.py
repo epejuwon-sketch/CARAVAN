@@ -20,13 +20,6 @@ _startup_error = None
 app = None
 
 try:
-    from app.db.session import run_migrations
-    try:
-        run_migrations()
-    except Exception as mig_err:
-        sys.stderr.write(f"[CARAVAN] Startup migration notice: {mig_err}\n")
-        sys.stderr.flush()
-
     from app.main import app as _caravan_app
     app = _caravan_app
 except Exception as exc:

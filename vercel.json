@@ -4,11 +4,7 @@
   "builds": [
     {
       "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": {
-        "runtime": "python3.12",
-        "includeFiles": ["api/**", "backend/**"]
-      }
+      "use": "@vercel/python"
     },
     {
       "src": "frontend/package.json",
@@ -38,7 +34,7 @@
       }
     },
     {
-      "src": "/(manifest\\.webmanifest|sw\\.js|favicon\\.svg)",
+      "src": "/(manifest\\.webmanifest|sw\\.js|favicon\\.svg|version\\.json)",
       "dest": "/frontend/$1",
       "headers": {
         "Cache-Control": "no-cache, no-store, must-revalidate",

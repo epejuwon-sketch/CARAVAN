@@ -66,7 +66,11 @@ def normalize_database_url(raw_url: str) -> str:
                 "statement_cache_size",
             }
             filtered = {k: v for k, v in parsed.query.items() if k.lower() not in NON_LIBPQ}
+            if "sslmode" not in filtered and parsed.host and parsed.host not in ("localhost", "127.0.0.1"):
+                filtered["sslmode"] = "require"
             parsed = parsed.set(query=filtered)
+        elif parsed.host and parsed.host not in ("localhost", "127.0.0.1"):
+            parsed = parsed.set(query={"sslmode": "require"})
         return parsed.render_as_string(hide_password=False)
     except Exception:
         return candidate
@@ -78,13 +82,21 @@ def get_engine():
         settings = get_settings()
         db_url = normalize_database_url(settings.DATABASE_URL)
         connect_args = {}
+        engine_kwargs = {"future": True}
+        is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
         if db_url.startswith("sqlite"):
-            connect_args = {"check_same_thread": False}
+            connect_args = {"check_same_thread": False, "timeout": 15}
+        else:
+            connect_args = {"connect_timeout": 5}
+            if is_serverless:
+                from sqlalchemy.pool import NullPool
+                engine_kwargs["poolclass"] = NullPool
+            else:
+                engine_kwargs["pool_pre_ping"] = True
         _engine = create_engine(
             db_url,
             connect_args=connect_args,
-            pool_pre_ping=True,
-            future=True,
+            **engine_kwargs
         )
     return _engine
 
@@ -107,9 +119,7 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def run_migrations():
-    """Ensure database tables are initialized and created, and migrate missing columns."""
-    global _migrations_applied
+def _execute_migrations():
     engine = get_engine()
     from app.db import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
@@ -253,4 +263,15 @@ def run_migrations():
                     except Exception:
                         pass
 
-    _migrations_applied = True
+
+def run_migrations():
+    """Ensure database tables are initialized and created, and migrate missing columns."""
+    global _migrations_applied
+    if _migrations_applied:
+        return
+    try:
+        _execute_migrations()
+        _migrations_applied = True
+    except Exception as mig_exc:
+        import logging
+        logging.getLogger("caravan").warning("Database migration non-blocking warning: %s", mig_exc)
