@@ -22,7 +22,15 @@ _caravan_app = None
 try:
     from app.main import app as _caravan_app
 except Exception as exc:
-    _startup_error = type(exc).__name__
+    err_msg = str(exc)
+    if "JWT_SECRET_KEY" in err_msg:
+        _startup_error = "jwt_secret_key_invalid_or_missing"
+    elif "DATABASE_URL" in err_msg:
+        _startup_error = "database_url_invalid_or_missing"
+    elif "ModuleNotFoundError" in type(exc).__name__:
+        _startup_error = f"module_not_found:{getattr(exc, 'name', '')}"
+    else:
+        _startup_error = type(exc).__name__
     sys.stderr.write(f"[CARAVAN STARTUP FATAL ERROR]: {exc}\n")
     sys.stderr.write(traceback.format_exc())
     sys.stderr.flush()
@@ -41,17 +49,18 @@ async def app(scope, receive, send):
                 return
 
     elif scope["type"] == "http":
-        # If startup failed during module import, return sanitized error with HTTP 500
+        # If startup failed during module import, return sanitized error category with HTTP 500
         if _startup_error is not None:
             body = json.dumps({
-                "detail": "Application startup in progress or unavailable. Please retry shortly."
+                "detail": "Application startup in progress or configuration incomplete.",
+                "failure_category": _startup_error,
             }).encode("utf-8")
             await send({
                 "type": "http.response.start",
                 "status": 500,
                 "headers": [
                     (b"content-type", b"application/json; charset=utf-8"),
-                    (b"x-caravan-status", b"startup_failure"),
+                    (b"x-caravan-status", f"startup_failure:{_startup_error}".encode("utf-8")),
                     (b"access-control-allow-origin", b"*"),
                 ],
             })
