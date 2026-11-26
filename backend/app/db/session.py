@@ -15,15 +15,31 @@ Base = declarative_base()
 _engine = None
 _SessionLocal = None
 _migrations_applied = False
+_using_fallback = False
+_primary_db_error = None
+_fallback_seeded = False
+
+
+def is_using_fallback() -> bool:
+    global _using_fallback
+    return _using_fallback
+
+
+def get_primary_db_error() -> str | None:
+    global _primary_db_error
+    return _primary_db_error
 
 
 def reset_engine():
-    global _engine, _SessionLocal, _migrations_applied
+    global _engine, _SessionLocal, _migrations_applied, _using_fallback, _primary_db_error, _fallback_seeded
     if _engine is not None:
         _engine.dispose()
     _engine = None
     _SessionLocal = None
     _migrations_applied = False
+    _using_fallback = False
+    _primary_db_error = None
+    _fallback_seeded = False
 
 
 def normalize_database_url(raw_url: str) -> str:
@@ -77,36 +93,71 @@ def normalize_database_url(raw_url: str) -> str:
 
 
 def get_engine():
-    global _engine
+    global _engine, _using_fallback, _primary_db_error
     if _engine is None:
         settings = get_settings()
         db_url = normalize_database_url(settings.DATABASE_URL)
-        connect_args = {}
-        engine_kwargs = {"future": True}
         is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
-        if db_url.startswith("sqlite"):
-            connect_args = {"check_same_thread": False, "timeout": 15}
-        else:
-            connect_args = {"connect_timeout": 5}
+
+        if not db_url.startswith("sqlite"):
+            engine_kwargs = {"future": True}
+            connect_args = {"connect_timeout": 3}
             if is_serverless:
                 from sqlalchemy.pool import NullPool
                 engine_kwargs["poolclass"] = NullPool
             else:
                 engine_kwargs["pool_pre_ping"] = True
-        _engine = create_engine(
-            db_url,
-            connect_args=connect_args,
-            **engine_kwargs
-        )
+
+            try:
+                candidate_engine = create_engine(
+                    db_url,
+                    connect_args=connect_args,
+                    **engine_kwargs
+                )
+                with candidate_engine.connect() as test_conn:
+                    test_conn.execute(text("SELECT 1"))
+                _engine = candidate_engine
+                _using_fallback = False
+            except Exception as primary_exc:
+                _primary_db_error = f"{type(primary_exc).__name__}: {primary_exc}"
+                import logging
+                logging.getLogger("caravan").warning(
+                    "Primary database connection failed (%s). Activating resilient failover storage.",
+                    primary_exc,
+                )
+                fallback_path = "/tmp/caravan.db" if is_serverless else "caravan_fallback.db"
+                _engine = create_engine(
+                    f"sqlite:///{fallback_path}",
+                    connect_args={"check_same_thread": False, "timeout": 15},
+                    future=True,
+                )
+                _using_fallback = True
+        else:
+            connect_args = {"check_same_thread": False, "timeout": 15}
+            _engine = create_engine(
+                db_url,
+                connect_args=connect_args,
+                future=True,
+            )
+            _using_fallback = False
+
     return _engine
 
 
 def get_session_factory():
-    global _SessionLocal, _migrations_applied
+    global _SessionLocal, _migrations_applied, _using_fallback, _fallback_seeded
     if _SessionLocal is None:
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine(), future=True)
         if not _migrations_applied:
             run_migrations()
+        if _using_fallback and not _fallback_seeded:
+            try:
+                from app.seed_data import seed_caravan_opportunities
+                with _SessionLocal() as sdb:
+                    seed_caravan_opportunities(sdb)
+                _fallback_seeded = True
+            except Exception:
+                pass
     return _SessionLocal
 
 
