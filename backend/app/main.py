@@ -63,10 +63,15 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS Middleware with strict origin allowlist
+# CORS Middleware with strict origin allowlist (disallowing localhost in production)
+effective_origins = [
+    o for o in settings.CARAVAN_CORS_ORIGINS
+    if not (settings.CARAVAN_ENV == "production" and ("localhost" in o or "127.0.0.1" in o))
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CARAVAN_CORS_ORIGINS,
+    allow_origins=effective_origins,
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
@@ -90,8 +95,8 @@ async def add_security_headers(request, call_next):
         "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: https:; "
-        "font-src 'self' data:; "
-        "connect-src 'self' https:; "
+        "font-src 'self' data: https://fonts.gstatic.com; "
+        "connect-src 'self' https://challenges.cloudflare.com https://generativelanguage.googleapis.com https://*.supabase.co https://*.vercel.app; "
         "frame-src https://challenges.cloudflare.com; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "
