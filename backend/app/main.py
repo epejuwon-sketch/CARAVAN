@@ -33,13 +33,19 @@ logger = logging.getLogger("caravan")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing CARAVAN Standalone Platform...")
-    run_migrations()
-    # Seed verified opportunities
-    session_factory = get_session_factory()
-    with session_factory() as db:
-        seeded = seed_caravan_opportunities(db)
-        if seeded > 0:
-            logger.info("Seeded %d verified institutional funding opportunities.", seeded)
+    try:
+        run_migrations()
+    except Exception as mig_err:
+        logger.warning("Startup migration non-fatal notice: %s", mig_err)
+
+    try:
+        session_factory = get_session_factory()
+        with session_factory() as db:
+            seeded = seed_caravan_opportunities(db)
+            if seeded > 0:
+                logger.info("Seeded %d verified institutional funding opportunities.", seeded)
+    except Exception as seed_err:
+        logger.warning("Startup opportunity seeding non-fatal notice: %s", seed_err)
     yield
     logger.info("CARAVAN Standalone Platform shutting down.")
 
