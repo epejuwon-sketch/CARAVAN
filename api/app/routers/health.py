@@ -38,6 +38,7 @@ def api_health(db: Session = Depends(get_db)):
         parsed = make_url(norm_url)
         sanitized_url = parsed.render_as_string(hide_password=True)
     except Exception:
+        pass
     res = {
         "status": "ready" if db_healthy else "degraded",
         "service": "CARAVAN Funding Intelligence Platform",
