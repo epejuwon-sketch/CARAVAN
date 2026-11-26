@@ -182,12 +182,20 @@ def api_application_agent_draft(
     db: Session = Depends(get_db),
 ):
     """Execute Steps 1-10: Evaluate opportunity, audit documents, draft validated answers."""
-    return ApplicationAgent.draft_application_workflow(
-        db=db,
-        org_id=principal.organization_id,
-        opportunity_id=body.opportunity_id,
-        application_id=body.application_id,
-    )
+    try:
+        return ApplicationAgent.draft_application_workflow(
+            db=db,
+            org_id=principal.organization_id,
+            opportunity_id=body.opportunity_id,
+            application_id=body.application_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Draft application notice: {type(exc).__name__}: {exc}",
+        )
 
 
 @router.get("/ai-status")

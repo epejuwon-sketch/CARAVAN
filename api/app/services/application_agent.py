@@ -231,21 +231,25 @@ class ApplicationAgent:
         db.add(draft_rec)
 
         # Invalidate/supersede unsubmitted approvals for this application when a new draft is created
-        prior_approvals = db.execute(
-            select(CopilotApprovalRecord).where(
-                CopilotApprovalRecord.organization_id == org_id,
-                CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
-            )
-        ).scalars().all()
-        for p in prior_approvals:
-            if p.target_type == "APPLICATION_DRAFT":
-                has_sub = db.execute(
-                    select(ApplicationSubmissionRecord).where(
-                        ApplicationSubmissionRecord.approval_id == p.approval_id
-                    )
-                ).first()
-                if not has_sub:
-                    p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
+        try:
+            prior_approvals = db.execute(
+                select(CopilotApprovalRecord).where(
+                    CopilotApprovalRecord.organization_id == org_id,
+                    CopilotApprovalRecord.status.in_(["APPROVED", "APPROVED_BY_CUSTOMER", "APPROVED_WITH_ADMIN_OVERRIDE"]),
+                )
+            ).scalars().all()
+            for p in prior_approvals:
+                if p.target_type == "APPLICATION_DRAFT":
+                    has_sub = db.execute(
+                        select(ApplicationSubmissionRecord).where(
+                            ApplicationSubmissionRecord.approval_id == p.approval_id
+                        )
+                    ).first()
+                    if not has_sub:
+                        p.status = "SUPERSEDED_NEW_DRAFT_CREATED"
+        except Exception as e:
+            db.rollback()
+            logger.warning("Could not supersede prior approvals on draft creation: %s", e)
 
         db.commit()
         db.refresh(draft_rec)
