@@ -273,20 +273,53 @@ class AIProviderFactory:
         gemini_configured = bool(api_key)
         provider = settings.CARAVAN_AI_PROVIDER
         model = settings.CARAVAN_AI_MODEL
-        is_active = gemini_configured and provider == "gemini"
-        active_provider = "google_gemini" if is_active else "caravan_grounded_engine"
+
+        live_probe_status = "NOT_CONFIGURED"
+        probe_detail = "GEMINI_API_KEY is not configured in environment variables. Local Grounded Engine is active."
+        is_healthy = False
+
+        if gemini_configured and provider == "gemini":
+            try:
+                with httpx.Client(timeout=4.0) as client:
+                    probe_res = client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                        json={"contents": [{"parts": [{"text": "CARAVAN diagnostic ping"}]}]},
+                        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                    )
+                    if probe_res.status_code == 404 and model != "gemini-1.5-flash":
+                        probe_res = client.post(
+                            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+                            json={"contents": [{"parts": [{"text": "CARAVAN diagnostic ping"}]}]},
+                            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                        )
+
+                    if probe_res.status_code == 200:
+                        is_healthy = True
+                        live_probe_status = "HEALTHY"
+                        probe_detail = "Live handshake confirmed: Google Gemini API is answering queries successfully."
+                    elif probe_res.status_code in (400, 401, 403):
+                        live_probe_status = f"AUTHENTICATION_FAILED_HTTP_{probe_res.status_code}"
+                        probe_detail = f"Google API returned HTTP {probe_res.status_code} (check API key validity and Generative Language API enablement)."
+                    elif probe_res.status_code == 429:
+                        live_probe_status = "RATE_LIMITED_HTTP_429"
+                        probe_detail = "Google Generative Language API quota exceeded or rate limited."
+                    else:
+                        live_probe_status = f"ERROR_HTTP_{probe_res.status_code}"
+                        probe_detail = f"Google API returned HTTP {probe_res.status_code} during status probe."
+            except Exception as exc:
+                live_probe_status = "TIMEOUT_OR_NETWORK_ERROR"
+                probe_detail = f"Could not reach Google Gemini endpoint: {exc.__class__.__name__}"
+
+        active_provider = "google_gemini" if is_healthy else "caravan_grounded_engine"
 
         return {
             "gemini_configured": gemini_configured,
             "configured_provider": provider,
             "configured_model": model,
             "active_provider": active_provider,
-            "fallback_active": not is_active,
-            "reason": (
-                "Operational: Gemini API connected."
-                if is_active
-                else "GEMINI_API_KEY is not configured in environment variables. Local Grounded Engine is active."
-            ),
+            "fallback_active": not is_healthy,
+            "live_probe_status": live_probe_status,
+            "reason": probe_detail,
             "database_grounding_active": True,
             "structured_tool_calling_ready": True,
         }
